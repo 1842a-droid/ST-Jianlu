@@ -1,0 +1,15 @@
+node_modules/
+__pycache__/
+*.pyc
+*.zip
+*.sha256
+outputs/
+work/
+.env
+.env.*
+*.key
+*.keystore
+*.jks
+*.log
+Thumbs.db
+.DS_Store

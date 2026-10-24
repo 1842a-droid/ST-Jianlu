@@ -1,0 +1,13 @@
+{
+  "display_name": "笺录 · 小说工作台",
+  "loading_order": 110,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "1842a-droid",
+  "version": "0.1.0",
+  "homePage": "https://github.com/1842a-droid/ST-Jianlu",
+  "auto_update": true,
+  "minimum_client_version": "1.13.0"
+}

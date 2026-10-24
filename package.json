@@ -1,0 +1,10 @@
+{
+  "name": "st-jianlu",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "check": "node --check index.js && node --check app.js && node --check host.js && node --check store.js && node --check chunker.js && node --check queue.js && node --check ui.js"
+  }
+}

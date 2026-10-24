@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>笺录 · 界面检查</title>
+<link rel="stylesheet" href="../style.css">
+<style>body{margin:0;background:#e8ece6;font-family:system-ui}</style>
+<body>
+<script type="module">
+import { createRepository } from '../store.js';
+import { createQueue } from '../queue.js';
+import { createController } from '../app.js';
+import { createUI } from '../ui.js';
+const data = new Map();
+const repo = createRepository({read: async name => data.get(name) ?? null,write: async (name,text) => data.set(name,text),remove: async name => data.delete(name)});
+const host = {
+  info: () => ({available:true,supported:true,presetName:'我的预设',model:'当前连接',api:'openai'}),
+  capture: async input => ({messages:[{role:'user',content:input}],profile:{presetName:'我的预设',model:'当前连接'}}),
+  generate: async () => {throw new Error('界面检查不调用模型');},
+  notify: message => console.info(message),subscribe: () => () => {},
+  openPreset: () => {}, openApi: () => {}, openWorldInfo: () => {},
+};
+const queue = createQueue({repo,host});
+let app;
+const ui=createUI({onAction:(type,payload)=>app.handle(type,payload)});
+app=createController({repo,host,queue,ui,context:()=>({extensionSettings:{jianlu:{theme:'light',fontSize:13}}})});
+await app.init();
+const source='第一章 雾中的信\n\n清晨，码头收到一封没有署名的信。沈青把信放进外套口袋，沿着旧石阶走向钟楼。\n\n'+('海风吹过廊桥，路灯次第熄灭。\n'.repeat(25))+'\n第二章 钟楼\n\n钟声响起时，守门人终于打开了门。\n'+('她记下门牌，继续向前走。\n'.repeat(25));
+const project=await repo.createProject({title:'雾港来信',sourceName:'雾港来信.txt',sourceText:source});
+const run=await queue.plan({projectId:project.id,title:'第一轮处理',chunkSize:220,overlap:30});
+for(const [i,status] of ['done','done','failed','partial'].entries()){
+ const chunk=await repo.getChunk(run.id,run.chunks[i].id);
+ await repo.saveChunk(run.id,{...chunk,status,output:status==='done'?'这里是已保存的处理结果。':status==='partial'?'已经输出的一部分内容':'',error:status==='failed'?'连接中断':''});
+}
+await app.handle('openProject',{id:project.id});
+await app.open();
+document.documentElement.dataset.ready='true';
+</script>
+</body></html>
