@@ -3,6 +3,18 @@ const clone = value => value == null ? value : structuredClone(value);
 const SOURCE_MACRO = /\{\{\s*jl_source\s*\}\}/i;
 const FILE_NAME = /^jl-[A-Za-z0-9_.-]{1,200}\.(?:json|txt)$/;
 const roleName = role => ({ 0: 'system', 1: 'user', 2: 'assistant' }[role] || role || 'system');
+// These are host control IDs, not a bundled or cached model catalogue.
+const MODEL_SELECT = Object.freeze({
+    openai: 'model_openai_select', claude: 'model_claude_select', makersuite: 'model_google_select',
+    vertexai: 'model_vertexai_select', openrouter: 'model_openrouter_select', ai21: 'model_ai21_select',
+    mistralai: 'model_mistralai_select', custom: 'model_custom_select', cohere: 'model_cohere_select',
+    perplexity: 'model_perplexity_select', groq: 'model_groq_select', siliconflow: 'model_siliconflow_select',
+    minimax: 'model_minimax_select', electronhub: 'model_electronhub_select', chutes: 'model_chutes_select',
+    nanogpt: 'model_nanogpt_select', deepseek: 'model_deepseek_select', aimlapi: 'model_aimlapi_select',
+    xai: 'model_xai_select', pollinations: 'model_pollinations_select', moonshot: 'model_moonshot_select',
+    fireworks: 'model_fireworks_select', cometapi: 'model_cometapi_select', azure_openai: 'azure_openai_model',
+    zai: 'model_zai_select', workers_ai: 'model_workers_ai_select',
+});
 
 function abortError() {
     return new DOMException('已暂停', 'AbortError');
@@ -51,6 +63,7 @@ export function createHost({ getContext, fetch: request = globalThis.fetch?.bind
     let corePromise;
     let active = false;
     let capturing = false;
+    let changingModel = false;
     let macroRegistry;
     let macroValues = Object.create(null);
 
@@ -77,6 +90,86 @@ export function createHost({ getContext, fetch: request = globalThis.fetch?.bind
         const ctx = context();
         if (!ctx) return { available: false, supported: false, api: '', presetName: '', characterName: '', chatId: '' };
         return { available: true, supported: ctx.mainApi === 'openai', ...profile(ctx) };
+    }
+
+    function modelControls(ctx) {
+        const source = ctx.chatCompletionSettings?.chat_completion_source || '';
+        if (ctx.mainApi !== 'openai') return { source, select: null, input: null };
+        const byId = id => globalThis.document?.getElementById(id);
+        const control = MODEL_SELECT[source] ? byId(MODEL_SELECT[source]) : null;
+        const select = control?.tagName?.toLowerCase() === 'select' && !control.disabled ? control : null;
+        const custom = source === 'custom' ? byId('custom_model_id') : null;
+        const input = custom?.tagName?.toLowerCase() === 'input' && ['text', ''].includes(custom.type || '')
+            && !custom.disabled && !custom.readOnly ? custom : null;
+        return { source, select, input };
+    }
+
+    function selectableModels(select, source) {
+        const found = new Map();
+        for (const option of select?.options || []) {
+            const id = String(option.value || '');
+            // OR_Website delegates to the provider's website; it is not a model ID.
+            if (!id.trim() || option.disabled || option.hidden || option.parentElement?.disabled
+                || (source === 'openrouter' && id === 'OR_Website')) continue;
+            if (!found.has(id)) found.set(id, { id, label: String(option.label || option.textContent || id).trim() || id });
+        }
+        return [...found.values()];
+    }
+
+    async function models() {
+        const ctx = context();
+        if (!ctx) return { current: '', source: '', models: [], editable: false };
+        const { source, select, input } = modelControls(ctx);
+        return { current: profile(ctx).model, source, models: selectableModels(select, source), editable: Boolean(input) };
+    }
+
+    function dispatchModel(control, value, eventName) {
+        const jquery = globalThis.jQuery || globalThis.$;
+        if (typeof jquery === 'function') jquery(control).val(value).trigger(eventName);
+        else {
+            control.value = value;
+            control.dispatchEvent(new Event(eventName, { bubbles: true }));
+        }
+    }
+
+    async function setModel(modelId) {
+        if (active || capturing || changingModel) throw new Error('当前任务正在准备或生成，请稍后再切换模型');
+        if (typeof modelId !== 'string' || !modelId.trim() || modelId.length > 512 || /[\x00-\x1f\x7f]/.test(modelId)) {
+            throw new Error('请输入有效的模型 ID');
+        }
+        const id = modelId.trim();
+        const ctx = ctxOrThrow();
+        if (ctx.mainApi !== 'openai') throw new Error('请先在酒馆 API 中切换到 Chat Completion');
+        const initialSource = ctx.chatCompletionSettings?.chat_completion_source;
+        changingModel = true;
+        try {
+            const { script } = await core();
+            if (script.isGenerating?.()) throw new Error('酒馆正在生成消息，请等待完成后再切换模型');
+            const current = ctxOrThrow();
+            if (current.mainApi !== 'openai' || current.chatCompletionSettings?.chat_completion_source !== initialSource) {
+                throw new Error('当前 API 来源已更改，请重新打开模型列表');
+            }
+            const { source, select, input } = modelControls(current);
+            const listed = selectableModels(select, source).some(model => model.id === id);
+            const control = listed ? select : input;
+            if (!control) throw new Error(select ? '该模型不在当前 API 的可选列表中' : '当前 API 暂无可用模型，请打开酒馆 API 设置');
+            if (id === profile(current).model && String(control.value) === id) return info();
+            const oldValue = String(control.value || '');
+            const eventName = control === input ? 'input' : 'change';
+            dispatchModel(control, id, eventName);
+            // The native handlers update settings synchronously, then schedule the
+            // host's saveSettingsDebounced. Never maintain a second model setting.
+            await Promise.resolve();
+            const after = ctxOrThrow();
+            if (after.mainApi !== 'openai' || after.chatCompletionSettings?.chat_completion_source !== source) {
+                throw new Error('当前 API 来源已更改，请重新打开模型列表');
+            }
+            if (profile(after).model !== id || String(control.value) !== id) {
+                dispatchModel(control, oldValue, eventName);
+                throw new Error('酒馆未接受该模型，请先在酒馆 API 设置中加载或选择模型');
+            }
+            return info();
+        } finally { changingModel = false; }
     }
 
     async function core() {
@@ -116,7 +209,7 @@ export function createHost({ getContext, fetch: request = globalThis.fetch?.bind
     }
 
     async function capture(input, options = {}) {
-        if (active || capturing) throw new Error('当前任务正在准备或生成，请稍后再试');
+        if (active || capturing || changingModel) throw new Error('当前任务或模型设置正在更新，请稍后再试');
         const ctx = ctxOrThrow();
         assertSupported(ctx);
         if (typeof input !== 'string' || !input.trim()) throw new Error('没有可发送的原文');
@@ -224,7 +317,7 @@ export function createHost({ getContext, fetch: request = globalThis.fetch?.bind
     }
 
     async function generate(snapshot, { signal } = {}) {
-        if (active || capturing) throw new Error('已有请求正在执行');
+        if (active || capturing || changingModel) throw new Error('已有请求或模型设置正在执行');
         const ctx = ctxOrThrow();
         assertSupported(ctx);
         if (!Array.isArray(snapshot?.messages) || !snapshot.messages.length) throw new Error('该块没有保存的提示词');
@@ -326,7 +419,7 @@ export function createHost({ getContext, fetch: request = globalThis.fetch?.bind
 
     function subscribe(fn) {
         const ctx = context();
-        const events = ['CHAT_CHANGED', 'PRESET_CHANGED', 'CHATCOMPLETION_SOURCE_CHANGED', 'ONLINE_STATUS_CHANGED', 'SETTINGS_UPDATED'];
+        const events = ['CHAT_CHANGED', 'PRESET_CHANGED', 'CHATCOMPLETION_SOURCE_CHANGED', 'CHATCOMPLETION_MODEL_CHANGED', 'ONLINE_STATUS_CHANGED', 'SETTINGS_UPDATED'];
         const bindings = events.map(name => ctx?.eventTypes?.[name]).filter(Boolean);
         const listener = () => fn(info());
         for (const name of bindings) ctx.eventSource?.on?.(name, listener);
@@ -339,7 +432,7 @@ export function createHost({ getContext, fetch: request = globalThis.fetch?.bind
     }
 
     return {
-        info, capture, generate, fileBackend, subscribe, notify,
+        info, models, setModel, capture, generate, fileBackend, subscribe, notify,
         openPreset: () => clickPanel(['leftNavDrawerIcon']),
         openApi: () => clickPanel(['API-status-top']),
         openWorldInfo: () => clickPanel(['WIDrawerIcon']),

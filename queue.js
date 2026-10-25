@@ -1,4 +1,4 @@
-import { splitText } from './chunker.js';
+import { splitText, splitByChapters } from './chunker.js';
 import { newId } from './store.js';
 
 const timestamp = () => new Date().toISOString();
@@ -140,14 +140,17 @@ export function createQueue({ repo, host, onChange } = {}) {
         return run;
     }
     const api = {
-        async plan({ projectId, title, chunkSize = 6000, overlap = 200, start = 0, end, inputText, inputName = '', sourceKind = 'novel', timeoutMs = 180000 }) {
+        async plan({ projectId, title, chunkSize = 6000, overlap = 200, splitMode = 'characters', chaptersPerChunk = 1, chapterStart, chapterEnd, start = 0, end, inputText, inputName = '', sourceKind = 'novel', timeoutMs = 180000 }) {
             if (!['novel', 'result', 'paste'].includes(sourceKind)) throw new Error('输入类型无效');
+            if (!['characters', 'chapters'].includes(splitMode)) throw new Error('分块方式无效');
             if (inputText !== undefined && typeof inputText !== 'string') throw new Error('输入材料必须是文本');
             const project = await repo.getProject(projectId);
             let sourceFile = project.sourceFile;
             let sourceName = project.sourceName;
             const source = inputText === undefined ? await repo.getSource(projectId) : inputText;
-            const ranges = splitText(source, { size: chunkSize, overlap, start, end: end ?? source.length });
+            const ranges = splitMode === 'chapters'
+                ? splitByChapters(source, { chaptersPerChunk, chapterStart, chapterEnd, start, end: end ?? source.length })
+                : splitText(source, { size: chunkSize, overlap, start, end: end ?? source.length });
             if (!ranges.length) throw new Error('所选范围没有可处理的内容');
             if (inputText !== undefined) {
                 const input = await repo.createSource(projectId, source, inputName);
@@ -158,7 +161,8 @@ export function createQueue({ repo, host, onChange } = {}) {
             const run = {
                 id: runId, projectId, title: String(title || `处理记录 ${new Date().toLocaleString('zh-CN')}`),
                 sourceFile, sourceName, sourceKind, sourceLength: source.length, rangeStart: ranges[0].start, rangeEnd: ranges.at(-1).end,
-                chunkSize: Number(chunkSize), overlap: Number(overlap), timeoutMs: Number(timeoutMs),
+                splitMode, chunkSize: Number(chunkSize), overlap: splitMode === 'chapters' ? 0 : Number(overlap), timeoutMs: Number(timeoutMs),
+                ...(splitMode === 'chapters' ? { chaptersPerChunk: Number(chaptersPerChunk), chapterStart: ranges[0].chapterStart, chapterEnd: ranges.at(-1).chapterEnd } : {}),
                 createdAt: timestamp(), updatedAt: timestamp(), status: 'pending',
                 chunks: ranges.map(range => ({ ...range, id: newId(), status: 'pending', attempts: 0, outputLength: 0 })),
             };

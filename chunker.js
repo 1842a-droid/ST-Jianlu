@@ -1,4 +1,23 @@
-const chapterPattern = /^(?:第[零〇一二三四五六七八九十百千万两\d]+[章节卷回部篇][^\r\n]{0,65}|chapter\s+[\divxlc]+[^\r\n]{0,65}|序章[^\r\n]{0,60}|楔子[^\r\n]{0,60}|尾声[^\r\n]{0,60})/gim;
+const chapterPattern = /^[\t \u3000\uFEFF]*(?:#{1,6}[\t ]*)?(?:第[零〇一二三四五六七八九十百千万亿两壹贰叁肆伍陆柒捌玖拾佰仟\d０-９]+[章节卷回部篇集]|[卷篇部章回][零〇一二三四五六七八九十百千万亿两\d０-９]+|(?:chapter|part|volume|book)\s+(?:\d+|[ivxlcdm]+\b|(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[- ](?:one|two|three|four|five|six|seven|eight|nine))?\b)|序章|序言|前言|楔子|引子|终章|尾声|后记)[^\r\n]{0,120}(?=\r?$)/gim;
+
+function headings(text) {
+    const pattern = new RegExp(chapterPattern.source, chapterPattern.flags);
+    const result = [];
+    let match;
+    while ((match = pattern.exec(text))) result.push({ start: match.index, label: match[0].trim().replace(/^#{1,6}\s*/, '') });
+    return result;
+}
+
+/** Detected section order is zero-based; the first section includes any preceding prose. */
+export function findChapters(text) {
+    if (typeof text !== 'string') throw new TypeError('原文必须是文本');
+    const found = headings(text);
+    return found.map((chapter, index) => ({
+        index, start: index === 0 ? 0 : chapter.start,
+        end: index + 1 < found.length ? found[index + 1].start : text.length,
+        label: chapter.label,
+    }));
+}
 
 function boundary(text, index, direction = -1) {
     if (index > 0 && index < text.length) {
@@ -7,6 +26,39 @@ function boundary(text, index, direction = -1) {
         if (before >= 0xD800 && before <= 0xDBFF && after >= 0xDC00 && after <= 0xDFFF) return index + direction;
     }
     return index;
+}
+
+/** Whole sections only: a long chapter is never silently split by character count. */
+export function splitByChapters(text, { chaptersPerChunk = 1, chapterStart, chapterEnd, start = 0, end = text.length } = {}) {
+    if (typeof text !== 'string') throw new TypeError('原文必须是文本');
+    chaptersPerChunk = Number(chaptersPerChunk);
+    if (!Number.isInteger(chaptersPerChunk) || chaptersPerChunk < 1) throw new Error('每块章节数须为正整数');
+    const chapters = findChapters(text);
+    if (!chapters.length) throw new Error('未识别到章节标题，请改用按字数分块');
+    let selected;
+    if (chapterStart !== undefined || chapterEnd !== undefined) {
+        const first = chapterStart === undefined ? 1 : Number(chapterStart);
+        const last = chapterEnd === undefined ? chapters.length : Number(chapterEnd);
+        if (!Number.isInteger(first) || !Number.isInteger(last) || first < 1 || last > chapters.length || last < first) throw new Error(`章节范围须为 1 至 ${chapters.length}，且起始章节不得晚于结束章节`);
+        selected = chapters.slice(first - 1, last);
+    } else {
+        start = Number(start); end = Number(end);
+        if (!Number.isFinite(start) || !Number.isFinite(end)) throw new Error('原文范围无效');
+        start = Math.max(0, Math.min(text.length, Math.floor(start)));
+        end = Math.max(0, Math.min(text.length, Math.floor(end)));
+        selected = end <= start ? [] : chapters.filter(chapter => chapter.end > start && chapter.start < end);
+    }
+    const ranges = [];
+    for (let offset = 0; offset < selected.length; offset += chaptersPerChunk) {
+        const group = selected.slice(offset, offset + chaptersPerChunk);
+        const first = group[0], last = group.at(-1);
+        ranges.push({
+            index: ranges.length, start: first.start, end: last.end,
+            label: first === last ? first.label : `${first.label} — ${last.label}`,
+            chapterStart: first.index + 1, chapterEnd: last.index + 1,
+        });
+    }
+    return ranges;
 }
 
 /** Return ranges into the original string; no manuscript copies are retained. */
@@ -22,13 +74,7 @@ export function splitText(text, { size = 6000, overlap = 200, start = 0, end = t
     end = boundary(text, Math.max(0, Math.min(text.length, Math.floor(end))), 1);
     if (end <= start) return [];
 
-    const chapters = [];
-    chapterPattern.lastIndex = 0;
-    let match;
-    while ((match = chapterPattern.exec(text))) {
-        if (match.index > end) break;
-        chapters.push({ start: match.index, label: match[0].trim() });
-    }
+    const chapters = headings(text).filter(chapter => chapter.start <= end);
     const ranges = [];
     let cursor = start, chapterIndex = -1;
     while (cursor < end) {

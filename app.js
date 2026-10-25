@@ -68,11 +68,15 @@ export function createController({ repo, host, queue, ui, context = () => global
     const disposers = [];
 
     const draw = () => { if (!destroyed) { state.active = queue.current(); ui.render(state); } };
+    const notify = (message, type = 'info') => {
+        if (ui.notify) ui.notify(message, type);
+        else host.notify?.(message, type);
+    };
     const report = error => {
         const message = error?.message || String(error);
-        state.notice = message; host.notify?.(message, 'error'); draw();
+        state.notice = message; notify(message, 'error'); draw();
     };
-    const toast = message => { state.notice = ''; host.notify?.(message, 'success'); };
+    const toast = message => { state.notice = ''; notify(message, 'success'); };
     const persistSettings = () => {
         const ctx = context();
         if (ctx?.extensionSettings) {
@@ -159,7 +163,7 @@ export function createController({ repo, host, queue, ui, context = () => global
             const value = await ui.dialog({ title: '新建项目', body, buttons: [{ label: '取消', value: 'cancel' }, { label: '创建', value: 'create', primary: true }] });
             if (value !== 'create') return;
             await loading;
-            if (!title.value.trim() || !sourceText.trim()) { host.notify?.('请填写项目名称并导入原文', 'warning'); continue; }
+            if (!title.value.trim() || !sourceText.trim()) { notify('请填写项目名称并导入原文', 'warning'); continue; }
             const project = await repo.createProject({ title: title.value.trim(), sourceName, sourceText });
             await openProject(project.id); toast('项目已保存'); return;
         }
@@ -219,36 +223,49 @@ export function createController({ repo, host, queue, ui, context = () => global
     async function newRun() {
         const project = state.project; if (!project) return;
         const body = el('div', { class: 'jl-form' });
-        const title = field(body, '任务名称', el('input', { value: `${state.hostInfo.presetName || '处理'} · ${new Date().toLocaleDateString()}` }));
+        const title = field(body, '任务名称', el('input', { value: `处理任务 · ${new Date().toLocaleDateString()}` }));
         const sourceType = field(body, '输入', select([['novel', '小说原文'], ['result', '已有任务的结果'], ['paste', '粘贴文本']], 'novel'));
         const prior = field(body, '来源任务', select(state.runs.map(run => [run.id, run.title]), state.run?.id));
         const pasted = field(body, '输入文本', el('textarea', { rows: 9, spellcheck: false }));
+        const splitMode = field(body, '分块方式', select([['characters', '按字数'], ['chapters', '按章节']], 'characters'));
         const start = field(body, '起始位置', el('input', { type: 'number', min: 1, value: 1 }));
         const end = field(body, '结束位置', el('input', { type: 'number', min: 1, value: project.length }));
         const size = field(body, '每块字数', el('input', { type: 'number', min: 100, step: 100, value: 6000 }));
         const overlap = field(body, '重叠字数', el('input', { type: 'number', min: 0, step: 50, value: 200 }));
+        const chaptersPerChunk = field(body, '每块章数', el('input', { type: 'number', min: 1, step: 1, value: 1 }));
+        const chapterStart = field(body, '起始章节序号', el('input', { type: 'number', min: 1, step: 1, value: 1 }));
+        const chapterEnd = field(body, '结束章节序号', el('input', { type: 'number', min: 1, step: 1, placeholder: '至末章' }));
         const syncFields = () => {
+            const byChapter = splitMode.value === 'chapters';
             prior.parentElement.hidden = sourceType.value !== 'result';
             pasted.parentElement.hidden = sourceType.value !== 'paste';
-            start.parentElement.hidden = end.parentElement.hidden = sourceType.value !== 'novel';
+            start.parentElement.hidden = end.parentElement.hidden = byChapter || sourceType.value !== 'novel';
+            size.parentElement.hidden = overlap.parentElement.hidden = byChapter;
+            chaptersPerChunk.parentElement.hidden = !byChapter;
+            chapterStart.parentElement.hidden = chapterEnd.parentElement.hidden = !byChapter;
         };
-        sourceType.addEventListener('change', syncFields); syncFields();
+        sourceType.addEventListener('change', syncFields); splitMode.addEventListener('change', syncFields); syncFields();
         for (;;) {
             const choice = await ui.dialog({ title: '新建任务', body, buttons: [{ label: '取消', value: 'cancel' }, { label: '生成任务计划', value: 'plan', primary: true }] });
             if (choice !== 'plan') return;
-            const options = { projectId: project.id, title: title.value.trim() || '新任务', chunkSize: Number(size.value), overlap: Number(overlap.value), sourceKind: sourceType.value };
+            const options = { projectId: project.id, title: title.value.trim() || '新任务', chunkSize: Number(size.value), overlap: Number(overlap.value), sourceKind: sourceType.value, splitMode: splitMode.value };
+            if (splitMode.value === 'chapters') {
+                options.chaptersPerChunk = Number(chaptersPerChunk.value);
+                options.chapterStart = Number(chapterStart.value);
+                if (chapterEnd.value.trim()) options.chapterEnd = Number(chapterEnd.value);
+            }
             if (sourceType.value === 'paste') { options.inputText = pasted.value; options.inputName = '粘贴文本'; }
             else if (sourceType.value === 'result') {
-                if (!prior.value) { host.notify?.('请选择来源任务', 'warning'); continue; }
+                if (!prior.value) { notify('请选择来源任务', 'warning'); continue; }
                 const merged = await queue.merge(prior.value, { includePartial: true });
                 options.inputText = merged.text; options.inputName = `任务结果：${state.runs.find(run => run.id === prior.value)?.title || ''}`;
-            } else { options.start = Number(start.value) - 1; options.end = Number(end.value); }
-            if (options.inputText !== undefined && !options.inputText.trim()) { host.notify?.('输入文本不能为空', 'warning'); continue; }
+            } else if (splitMode.value === 'characters') { options.start = Number(start.value) - 1; options.end = Number(end.value); }
+            if (options.inputText !== undefined && !options.inputText.trim()) { notify('输入文本不能为空', 'warning'); continue; }
             try {
                 const run = await queue.plan(options);
                 state.run = run; state.selectedIds = []; state.filter = 'all'; state.page = 0;
                 await refresh(); toast('任务计划已保存'); return;
-            } catch (error) { host.notify?.(error.message, 'error'); }
+            } catch (error) { notify(error.message, 'error'); }
         }
     }
 
@@ -337,15 +354,114 @@ export function createController({ repo, host, queue, ui, context = () => global
         await openProject(imported.id); toast('已作为新项目导入');
     }
 
+    async function apiSettings() {
+        if (queue.current()) throw new Error('请先暂停任务再切换模型');
+        const available = await host.models();
+        const body = el('div', { class: 'jl-form' });
+        field(body, '接口来源', el('input', { value: available.source || state.hostInfo.source || '当前接口', readOnly: true }));
+        const options = (available.models || []).map(model => [model.id, model.label || model.id]);
+        const manualId = '__jianlu_manual_model__';
+        const choices = available.editable ? [...options, [manualId, '手动输入模型 ID']] : options;
+        const current = options.some(([id]) => id === available.current) ? available.current : available.editable ? manualId : available.current;
+        const model = field(body, '模型', select(choices.length ? choices : [['', '暂无可选模型']], current));
+        const custom = field(body, '模型 ID', el('input', { value: available.current || '', autocomplete: 'off' }));
+        const syncCustom = () => { custom.parentElement.hidden = !available.editable || model.value !== manualId; };
+        model.addEventListener('change', syncCustom); syncCustom();
+        model.disabled = !available.editable && !options.length;
+        const native = el('button', { type: 'button', class: 'jl-settings-row' }, '编辑接口连接 ↗');
+        native.addEventListener('click', () => {
+            ui.close(); Promise.resolve(host.openApi()).catch(report);
+        });
+        body.append(native);
+        for (;;) {
+            const buttons = [{ label: '返回', value: 'cancel' }];
+            if (available.editable || options.length) buttons.push({ label: '应用模型', value: 'apply', primary: true });
+            const choice = await ui.dialog({ title: '接口与模型', body, buttons });
+            if (choice !== 'apply') return;
+            try {
+                if (queue.current()) throw new Error('请先暂停任务再切换模型');
+                const requestedModel = model.value === manualId ? custom.value.trim() : model.value.trim();
+                if (!requestedModel) throw new Error('请选择或填写模型');
+                await host.setModel(requestedModel); await refreshHost(); toast('模型已切换'); return;
+            } catch (error) { notify(error.message, 'error'); }
+        }
+    }
+
     async function settings() {
         const body = el('div', { class: 'jl-form' });
+        const connection = el('section', { class: 'jl-settings-section' });
+        connection.append(el('h3', { class: 'jl-settings-heading' }, '接口'));
+        const api = el('button', { type: 'button', class: 'jl-settings-row' });
+        const apiValue = el('span', { class: 'jl-settings-value' }, state.hostInfo.model || '选择模型');
+        api.append(el('span', {}, '接口与模型'), apiValue, el('span', {}, '›'));
+        api.disabled = Boolean(queue.current());
+        api.addEventListener('click', () => {
+            api.disabled = true;
+            apiSettings().then(() => { apiValue.textContent = state.hostInfo.model || '选择模型'; }).catch(report)
+                .finally(() => { api.disabled = Boolean(queue.current()); });
+        });
+        connection.append(api); body.append(connection);
         const theme = field(body, '主题', select([['host', '跟随酒馆'], ['light', '纸白'], ['dark', '墨色']], state.settings.theme));
         const font = field(body, '字号', select([12, 13, 14, 15, 16].map(value => [String(value), `${value}px`]), String(state.settings.fontSize)));
-        const choice = await ui.dialog({ title: '设置', body, buttons: [{ label: '取消', value: 'cancel' }, { label: '保存', value: 'save', primary: true }] });
-        if (choice === 'save') {
+        const saveAppearance = () => {
             state.settings = { theme: theme.value, fontSize: Number(font.value) };
             persistSettings(); draw();
+        };
+        theme.addEventListener('change', saveAppearance); font.addEventListener('change', saveAppearance);
+        if (state.project) {
+            const project = el('section', { class: 'jl-settings-section' });
+            project.append(el('h3', { class: 'jl-settings-heading' }, '项目'));
+            for (const [label, action, danger] of [['重命名项目', renameProject], ['导出项目备份', exportBackup], ['删除项目', deleteProject, true]]) {
+                const button = el('button', { type: 'button', class: `jl-settings-row${danger ? ' jl-danger' : ''}` }, label);
+                if (danger) button.disabled = queue.current()?.projectId === state.project.id;
+                button.addEventListener('click', () => {
+                    button.disabled = true;
+                    action().then(() => { if (!state.project) project.remove(); }).catch(report)
+                        .finally(() => { button.disabled = Boolean(danger && queue.current()?.projectId === state.project?.id); });
+                });
+                project.append(button);
+            }
+            body.append(project);
         }
+        await ui.dialog({ title: '设置', body, buttons: [{ label: '完成', value: 'close', primary: true }] });
+    }
+
+    async function deleteChunks(ids) {
+        if (!state.run) throw new Error('请先选择任务');
+        const runId = state.run.id;
+        if (queue.current()?.runId === runId) throw new Error('请先暂停该任务再删除分块');
+        const selected = [...new Set(ids || state.selectedIds)];
+        if (!selected.length) throw new Error('请先选择要删除的分块');
+        const body = el('p', {}, `删除选中的 ${selected.length} 个分块及其结果？`);
+        const choice = await ui.dialog({ title: '删除分块', body, buttons: [{ label: '取消', value: 'cancel' }, { label: '删除', value: 'delete', danger: true }] });
+        if (choice !== 'delete') return;
+        if (queue.current()?.runId === runId) throw new Error('请先暂停该任务再删除分块');
+        await repo.deleteChunks(runId, selected);
+        drawer?.close?.(); state.selectedIds = []; state.page = 0;
+        await refresh(); toast(`已删除 ${selected.length} 个分块`);
+    }
+
+    async function taskActions() {
+        if (!state.run) throw new Error('请先新建任务');
+        const run = await repo.getRun(state.run.id);
+        const selected = state.selectedIds.filter(id => run.chunks.some(chunk => chunk.id === id));
+        const active = queue.current();
+        const body = el('p', { class: 'jl-muted' }, selected.length ? `已选 ${selected.length} 块` : `共 ${run.chunks.length} 块`);
+        const choice = await ui.dialog({ title: '任务操作', body, layout: 'menu', buttons: [
+            { label: `执行选中 · ${selected.length}`, value: 'selected', primary: true, disabled: !selected.length || Boolean(active) },
+            { label: '继续剩余', value: 'remaining', disabled: Boolean(active) || !run.chunks.some(chunk => ['pending', 'paused'].includes(chunk.status)) },
+            { label: '暂停', value: 'pause', disabled: active?.runId !== run.id },
+            { label: '仅重试失败', value: 'failed', disabled: Boolean(active) || !run.chunks.some(chunk => ['failed', 'partial'].includes(chunk.status)) },
+            { label: '合并导出', value: 'export', disabled: !run.chunks.some(chunk => ['done', 'partial'].includes(chunk.status)) },
+            { label: `删除选中 · ${selected.length}`, value: 'delete', danger: true, disabled: !selected.length || active?.runId === run.id },
+            { label: '取消', value: 'cancel' },
+        ] });
+        if (choice === 'selected') return launch({ ids: selected });
+        if (choice === 'remaining') return launch();
+        if (choice === 'pause') { await queue.pause(); return refresh(); }
+        if (choice === 'failed') return launch({ ids: run.chunks.filter(chunk => ['failed', 'partial'].includes(chunk.status)).map(chunk => chunk.id) });
+        if (choice === 'export') return mergeExport();
+        if (choice === 'delete') return deleteChunks(selected);
     }
 
     function filteredChunks() {
@@ -359,7 +475,7 @@ export function createController({ repo, host, queue, ui, context = () => global
 
     async function handle(type, data = {}) {
         if (destroyed) return;
-        const exclusive = new Set(['newProject', 'importBackup', 'openProject', 'source', 'renameProject', 'deleteProject', 'exportBackup', 'newRun', 'selectRun', 'openChunk', 'saveChunk', 'mergeExport', 'settings']);
+        const exclusive = new Set(['newProject', 'importBackup', 'openProject', 'source', 'renameProject', 'deleteProject', 'exportBackup', 'newRun', 'selectRun', 'openChunk', 'saveChunk', 'mergeExport', 'settings', 'apiSettings', 'taskActions', 'deleteChunks']);
         const lock = exclusive.has(type);
         if (lock && state.busy) return;
         if (lock) { state.busy = true; draw(); }
@@ -367,6 +483,9 @@ export function createController({ repo, host, queue, ui, context = () => global
             if (type === 'newProject') return await newProject();
             if (type === 'importBackup') return await importBackup();
             if (type === 'settings') return await settings();
+            if (type === 'apiSettings') return await apiSettings();
+            if (type === 'taskActions') return await taskActions();
+            if (type === 'deleteChunks') return await deleteChunks(data.ids);
             if (type === 'openProject') return await openProject(data.id);
             if (type === 'backProjects') { drawer?.close?.(); state.project = null; state.run = null; sourceCache = null; state.selectedIds = []; return await refresh(); }
             if (type === 'source') return await source();

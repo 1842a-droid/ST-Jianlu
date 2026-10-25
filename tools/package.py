@@ -9,7 +9,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 OUT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT.parent
 VERSION = json.loads((ROOT / 'manifest.json').read_text(encoding='utf-8'))['version']
-RUNTIME = ['manifest.json', 'index.js', 'app.js', 'host.js', 'store.js', 'chunker.js', 'queue.js', 'ui.js', 'style.css', 'README.md', 'TESTING.md', 'LICENSE']
+RUNTIME = ['manifest.json', 'index.js', 'app.js', 'host.js', 'store.js', 'chunker.js', 'queue.js', 'ui.js', 'style.css', 'README.md', 'TESTING.md', 'CHANGELOG.md', 'LICENSE']
 OUT.mkdir(parents=True, exist_ok=True)
 
 for name in RUNTIME:

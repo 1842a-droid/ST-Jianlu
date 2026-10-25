@@ -59,6 +59,12 @@ function promptText(snapshot) {
     return parts.join('\n\n');
 }
 
+function activeElement() {
+    let element = document.activeElement;
+    while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
+    return element;
+}
+
 export async function copyText(text) {
     if (navigator.clipboard?.writeText) {
         try { await navigator.clipboard.writeText(text); return; } catch { /* Fall through for HTTP installations. */ }
@@ -66,10 +72,19 @@ export async function copyText(text) {
     const field = node('textarea', 'jl-copy-field');
     field.value = text;
     field.setAttribute('aria-label', '复制内容');
-    (document.querySelector('#jianlu-root') || document.body).append(field);
-    field.select();
-    const copied = document.execCommand('copy');
-    field.remove();
+    field.style.cssText = 'position:fixed;opacity:0;left:-10000px;top:0;pointer-events:none;';
+    const previousFocus = activeElement();
+    const shadow = document.getElementById('jianlu-extension-host')?.shadowRoot;
+    (shadow?.getElementById('jianlu-root') || document.body).append(field);
+    let copied;
+    try {
+        field.focus({ preventScroll: true });
+        field.select();
+        copied = document.execCommand('copy');
+    } finally {
+        field.remove();
+        if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+    }
     if (!copied) throw new Error('复制失败，请选中文本复制');
 }
 
@@ -93,6 +108,8 @@ function logo() {
 
 /** A self-contained view. All persistence and host actions are supplied by the controller. */
 export function createUI({ onAction = () => {} } = {}) {
+    let host;
+    let shadow;
     let root;
     let frame;
     let content;
@@ -104,6 +121,24 @@ export function createUI({ onAction = () => {} } = {}) {
     let toastTimer;
     let chunkView = null;
     const dialogs = [];
+    const shieldedEvents = ['click', 'dblclick', 'contextmenu', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchmove', 'touchend', 'wheel', 'keydown', 'keyup', 'input', 'change'];
+
+    function stopHostEvent(event) { event.stopPropagation(); }
+
+    function syncViewport() {
+        if (!host) return;
+        const viewport = window.visualViewport;
+        const height = Math.max(1, Math.round(viewport?.height || window.innerHeight));
+        host.style.setProperty('height', `${height}px`, 'important');
+        host.style.setProperty('top', `${Math.max(0, Math.round(viewport?.offsetTop || 0))}px`, 'important');
+        root?.style.setProperty('--jl-viewport-height', `${height}px`);
+    }
+
+    function setVisible(value) {
+        host.hidden = !value;
+        host.style.setProperty('display', value ? 'block' : 'none', 'important');
+        root.hidden = !value;
+    }
 
     function announce(message) {
         if (!root) return;
@@ -125,6 +160,23 @@ export function createUI({ onAction = () => {} } = {}) {
 
     function mount() {
         if (root) return root;
+        host = node('div');
+        host.id = 'jianlu-extension-host';
+        host.hidden = true;
+        for (const [property, value] of Object.entries({
+            all: 'initial', position: 'fixed', inset: '0', bottom: 'auto', 'z-index': '2147483000',
+            display: 'none', overflow: 'hidden', isolation: 'isolate', 'pointer-events': 'auto',
+            'touch-action': 'auto', margin: '0', padding: '0', border: '0', 'box-sizing': 'border-box',
+        })) host.style.setProperty(property, value, 'important');
+        shadow = host.attachShadow({ mode: 'open' });
+        const criticalStyle = node('style');
+        criticalStyle.textContent = ':host{display:block}#jianlu-root{position:absolute;inset:0;overflow:hidden}#jianlu-root[hidden],#jianlu-root [hidden]{display:none!important}';
+        const stylesheet = node('link');
+        stylesheet.rel = 'stylesheet';
+        const stylesheetUrl = new URL('./style.css', import.meta.url);
+        stylesheetUrl.search = new URL(import.meta.url).search;
+        stylesheet.href = stylesheetUrl.href;
+        shadow.append(criticalStyle, stylesheet);
         root = node('div');
         root.id = 'jianlu-root';
         root.hidden = true;
@@ -144,8 +196,14 @@ export function createUI({ onAction = () => {} } = {}) {
         toast.setAttribute('aria-live', 'polite');
         toast.hidden = true;
         root.append(backdrop, frame, overlay, toast);
-        document.body.append(root);
-        document.addEventListener('keydown', handleKeydown, true);
+        shadow.append(root);
+        document.body.append(host);
+        shadow.addEventListener('keydown', handleKeydown, true);
+        for (const type of shieldedEvents) shadow.addEventListener(type, stopHostEvent);
+        window.addEventListener('resize', syncViewport);
+        window.visualViewport?.addEventListener('resize', syncViewport);
+        window.visualViewport?.addEventListener('scroll', syncViewport);
+        syncViewport();
         return root;
     }
 
@@ -182,10 +240,11 @@ export function createUI({ onAction = () => {} } = {}) {
         }
         const first = elements[0];
         const last = elements.at(-1);
-        if (!surface.contains(document.activeElement) || (!event.shiftKey && document.activeElement === last)) {
+        const focused = activeElement();
+        if (!surface.contains(focused) || (!event.shiftKey && focused === last)) {
             event.preventDefault();
             first.focus();
-        } else if (event.shiftKey && (document.activeElement === first || document.activeElement === surface)) {
+        } else if (event.shiftKey && (focused === first || focused === surface)) {
             event.preventDefault();
             last.focus();
         }
@@ -194,9 +253,10 @@ export function createUI({ onAction = () => {} } = {}) {
     function open() {
         mount();
         if (visible) return;
-        returnFocus = document.activeElement;
+        returnFocus = activeElement();
         visible = true;
-        root.hidden = false;
+        setVisible(true);
+        syncViewport();
         render(state);
         focusSurface(topSurface());
     }
@@ -206,7 +266,7 @@ export function createUI({ onAction = () => {} } = {}) {
         for (const entry of [...dialogs].reverse()) entry.finish(null);
         chunkView?.close(false);
         visible = false;
-        root.hidden = true;
+        setVisible(false);
         if (returnFocus?.isConnected) returnFocus.focus();
     }
 
@@ -216,8 +276,8 @@ export function createUI({ onAction = () => {} } = {}) {
         const scroller = content.querySelector('.jl-scroll');
         const scrollTop = scroller?.scrollTop || 0;
         const previousProject = content.dataset.project || '';
-        const activeElement = document.activeElement;
-        const focusKey = content.contains(activeElement) ? activeElement.dataset.focusKey : null;
+        const focused = activeElement();
+        const focusKey = content.contains(focused) ? focused.dataset.focusKey : null;
         root.dataset.theme = ['light', 'dark'].includes(state.settings?.theme) ? state.settings.theme : 'host';
         root.style.setProperty('--jl-font-size', `${Math.max(12, Math.min(16, Number(state.settings?.fontSize) || 13))}px`);
         content.replaceChildren();
@@ -290,30 +350,14 @@ export function createUI({ onAction = () => {} } = {}) {
         const source = button(state.project.sourceName || '原文', () => { void act('source'); }, 'jl-source-button');
         source.title = state.project.sourceName || '查看原文';
         nav.append(source, node('span', 'jl-muted jl-word-count', `${formatNumber(state.project.length)} 字`), node('span', 'jl-grow'));
-        const more = node('details', 'jl-more');
-        const summary = node('summary', 'jl-button jl-icon-button', '···');
-        summary.setAttribute('aria-label', '项目操作');
-        const menu = node('div', 'jl-more-menu');
-        for (const [label, type, danger] of [['重命名', 'renameProject'], ['导出项目备份', 'exportBackup'], ['删除项目', 'deleteProject', true]]) {
-            menu.append(button(label, () => { more.open = false; void act(type); }, danger ? 'jl-danger' : ''));
-        }
-        more.append(summary, menu);
-        nav.append(more);
         content.append(nav);
-
-        const host = state.hostInfo || {};
-        const connections = node('div', 'jl-toolbar jl-connections');
-        const preset = button('', () => { void act('openPreset'); }, 'jl-connection');
-        preset.append(node('span', 'jl-connection-label', '预设'), node('span', 'jl-connection-value', host.presetName || '当前预设'), node('span', 'jl-chevron', '↗'));
-        const api = button('', () => { void act('openApi'); }, 'jl-connection');
-        api.append(node('span', 'jl-connection-label', '接口'), node('span', 'jl-connection-value', host.model || host.api || '当前接口'), node('span', 'jl-chevron', '↗'));
-        connections.append(preset, api, button('世界书 ↗', () => { void act('openWorldInfo'); }, 'jl-quiet jl-world-info'));
-        content.append(connections);
 
         const runBar = node('div', 'jl-toolbar jl-run-toolbar');
         const runs = Array.isArray(state.runs) ? state.runs : [];
+        const picker = node('label', 'jl-run-picker');
+        picker.append(node('span', 'jl-run-label', '当前任务'));
         const select = node('select', 'jl-run-select');
-        select.setAttribute('aria-label', '处理任务');
+        select.setAttribute('aria-label', '当前任务');
         select.dataset.focusKey = 'run-select';
         if (!runs.length) {
             const option = node('option', '', '暂无任务');
@@ -328,9 +372,14 @@ export function createUI({ onAction = () => {} } = {}) {
         }
         select.disabled = !runs.length || Boolean(state.busy);
         select.addEventListener('change', () => { void act('selectRun', { id: select.value }); });
-        const newRun = button('＋ 新建任务', () => { void act('newRun'); }, 'jl-primary');
+        const newRun = button('＋ 新建任务', () => { void act('newRun'); }, state.run ? '' : 'jl-primary');
         newRun.disabled = Boolean(state.busy) || !state.project.length;
-        runBar.append(select, node('span', 'jl-grow'), newRun);
+        picker.append(select);
+        const runActions = node('div', 'jl-run-actions');
+        const taskActions = button('任务操作', () => { void act('taskActions'); }, 'jl-primary');
+        taskActions.disabled = Boolean(state.busy) || !state.run;
+        runActions.append(newRun, taskActions);
+        runBar.append(picker, runActions);
         content.append(runBar);
         if (!state.run) {
             const empty = node('div', 'jl-scroll jl-empty');
@@ -366,7 +415,10 @@ export function createUI({ onAction = () => {} } = {}) {
         filters.append(tabs, node('span', 'jl-grow'));
         filters.append(button('全选', () => { void act('selectFiltered'); }, 'jl-quiet'), button('清空', () => { void act('deselectAll'); }, 'jl-quiet'));
         const selected = new Set(Array.isArray(state.selectedIds) ? state.selectedIds : state.selectedIds ? [...state.selectedIds] : []);
-        if (selected.size) filters.append(node('span', 'jl-selected-count', `${selected.size} 已选`));
+        const selectionCount = node('span', 'jl-selected-count', `已选 ${selected.size} 块`);
+        selectionCount.setAttribute('role', 'status');
+        selectionCount.setAttribute('aria-live', 'polite');
+        filters.append(selectionCount);
         content.append(filters);
 
         const filtered = filteredChunks(chunks, state.filter);
@@ -379,6 +431,7 @@ export function createUI({ onAction = () => {} } = {}) {
             const row = node('div', 'jl-chunk-row');
             row.setAttribute('role', 'listitem');
             row.dataset.status = chunk.status || 'pending';
+            row.dataset.selected = String(selected.has(chunk.id));
             const label = node('label', 'jl-check-label');
             const checkbox = node('input');
             checkbox.type = 'checkbox';
@@ -402,11 +455,6 @@ export function createUI({ onAction = () => {} } = {}) {
             openChunk.append(main, meta);
             const badge = node('span', `jl-status jl-status-${chunk.status || 'pending'}`, STATUS[chunk.status] || chunk.status || '待处理');
             row.append(label, openChunk, badge);
-            if (['failed', 'paused', 'partial'].includes(chunk.status)) {
-                const retry = iconButton('↻', '重试此块', () => { void act('retryChunk', { id: chunk.id }); });
-                retry.disabled = Boolean(state.active) || Boolean(state.busy);
-                row.append(retry);
-            } else row.append(node('span', 'jl-row-spacer'));
             list.append(row);
         }
         if (!filtered.length) list.append(node('div', 'jl-empty', '没有符合条件的文本块'));
@@ -420,33 +468,21 @@ export function createUI({ onAction = () => {} } = {}) {
             pagination.append(previous, node('span', 'jl-muted', `${page + 1} / ${pageCount}`), next);
             content.append(pagination);
         }
-        const footer = node('footer', 'jl-footer');
-        const activeHere = state.active?.runId === state.run.id;
-        const canRun = chunks.some(chunk => ['pending', 'paused'].includes(chunk.status));
-        const run = button(selected.size ? `运行所选 · ${selected.size}` : '继续剩余', () => { void act('run', selected.size ? { ids: [...selected] } : {}); }, 'jl-primary');
-        run.disabled = Boolean(state.active) || Boolean(state.busy) || (!selected.size && !canRun);
-        const pause = button('暂停', () => { void act('pause'); });
-        pause.disabled = !activeHere;
-        const retry = button('仅重试失败', () => { void act('retryFailed'); });
-        retry.disabled = Boolean(state.active) || Boolean(state.busy) || failedCount + partialCount === 0;
-        const exportButton = button('合并导出', () => { void act('mergeExport'); });
-        exportButton.disabled = Boolean(state.busy) || !chunks.some(chunk => ['done', 'partial'].includes(chunk.status));
-        footer.append(run, pause, retry, node('span', 'jl-grow'), exportButton);
-        content.append(footer);
     }
 
-    function dialog({ title = '', body, buttons = [{ label: '完成', value: true, primary: true }] } = {}) {
+    function dialog({ title = '', body, buttons = [{ label: '完成', value: true, primary: true }], layout = 'default' } = {}) {
         mount();
         if (!visible) open();
         const layer = node('div', 'jl-modal-layer');
         const surface = node('section', 'jl-dialog');
+        if (layout === 'menu') surface.classList.add('jl-dialog-menu');
         surface.setAttribute('role', 'dialog');
         surface.setAttribute('aria-modal', 'true');
         surface.setAttribute('aria-label', title || '操作');
         surface.tabIndex = -1;
         const header = node('header', 'jl-sheet-header');
         header.append(node('h2', '', title));
-        const previousFocus = document.activeElement;
+        const previousFocus = activeElement();
         let finish;
         const promise = new Promise(resolve => {
             finish = value => {
@@ -467,7 +503,9 @@ export function createUI({ onAction = () => {} } = {}) {
         else if (body !== undefined) bodyContainer.textContent = String(body);
         const footer = node('footer', 'jl-dialog-footer');
         for (const specification of buttons) {
-            footer.append(button(specification.label, () => finish(specification.value), specification.primary ? 'jl-primary' : specification.danger ? 'jl-danger' : ''));
+            const choice = button(specification.label, () => finish(specification.value), specification.primary ? 'jl-primary' : specification.danger ? 'jl-danger' : '');
+            choice.disabled = Boolean(specification.disabled);
+            footer.append(choice);
         }
         surface.append(header, bodyContainer, footer);
         layer.append(surface);
@@ -484,7 +522,7 @@ export function createUI({ onAction = () => {} } = {}) {
         chunkView?.close(false);
         let currentChunk = { ...chunk };
         let dirty = false;
-        const previousFocus = document.activeElement;
+        const previousFocus = activeElement();
         const layer = node('div', 'jl-sheet-layer');
         const surface = node('section', 'jl-sheet');
         surface.setAttribute('role', 'dialog');
@@ -590,7 +628,9 @@ export function createUI({ onAction = () => {} } = {}) {
         retry.disabled = chunk.status === 'done' || Boolean(state.active);
         const rerun = button('按当前预设重跑', () => { void act('rerunChunk', { id: currentChunk.id }); }, 'jl-quiet');
         rerun.disabled = Boolean(state.active);
-        footer.append(copy, exportButton, retry, rerun, node('span', 'jl-grow'), save);
+        const remove = button('删除此块', () => { void act('deleteChunks', { ids: [currentChunk.id] }); }, 'jl-danger');
+        remove.disabled = Boolean(state.active);
+        footer.append(copy, exportButton, retry, rerun, remove, node('span', 'jl-grow'), save);
         surface.append(header, tabs, body, footer);
         layer.append(surface);
         layer.addEventListener('click', event => { if (event.target === layer) view.close(); });
@@ -602,11 +642,16 @@ export function createUI({ onAction = () => {} } = {}) {
 
     function destroy() {
         close();
-        document.removeEventListener('keydown', handleKeydown, true);
+        shadow?.removeEventListener('keydown', handleKeydown, true);
+        for (const type of shieldedEvents) shadow?.removeEventListener(type, stopHostEvent);
+        window.removeEventListener('resize', syncViewport);
+        window.visualViewport?.removeEventListener('resize', syncViewport);
+        window.visualViewport?.removeEventListener('scroll', syncViewport);
         clearTimeout(toastTimer);
-        root?.remove();
+        host?.remove();
+        host = shadow = null;
         root = frame = content = overlay = toast = null;
     }
 
-    return { mount, open, close, render, dialog, showChunk, destroy };
+    return { mount, open, close, render, dialog, showChunk, notify: announce, destroy };
 }

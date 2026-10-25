@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRepository } from '../store.js';
 import { createQueue } from '../queue.js';
-import { splitText } from '../chunker.js';
+import { splitText, splitByChapters, findChapters } from '../chunker.js';
 
 function memory() {
     const files = new Map();
@@ -324,4 +324,171 @@ test('失败索引指向实际已完成成果时，明确重试也先修复索�
     assert.equal(host.calls.length, 1);
     assert.equal((await repo.getRun(run.id)).status, 'done');
     assert.equal((await repo.getChunk(run.id, chunk.id)).output, '手动完成');
+});
+
+test('识别紧邻标题、中文数字、英文与卷篇标题，分组不丢开头序言', () => {
+    const text = '作品简介\n作者说明\n\n第998章紫剑的来由\n甲😀\n\n  第九百九十九章云起\n乙\nCHAPTER IV: The Return\n丙\n卷五归途\n丁\n第二篇新篇\n戊';
+    const chapters = findChapters(text);
+    assert.deepEqual(chapters.map(chapter => chapter.label), ['第998章紫剑的来由', '第九百九十九章云起', 'CHAPTER IV: The Return', '卷五归途', '第二篇新篇']);
+    assert.deepEqual(chapters.map(chapter => chapter.index), [0, 1, 2, 3, 4]);
+    assert.equal(chapters[0].start, 0);
+    assert.equal(chapters.map(chapter => text.slice(chapter.start, chapter.end)).join(''), text);
+    const groups = splitByChapters(text, { chaptersPerChunk: 2 });
+    assert.deepEqual(groups.map(group => [group.chapterStart, group.chapterEnd]), [[1, 2], [3, 4], [5, 5]]);
+    assert.equal(groups.map(group => text.slice(group.start, group.end)).join(''), text);
+    for (let index = 1; index < groups.length; index++) assert.equal(groups[index].start, groups[index - 1].end);
+    assert.equal(findChapters('Chapter One\n正文\nChapter Two The Way\n结尾').length, 2);
+});
+
+test('按识别章序号或字符范围选完整章，不暗中拆开长章节，无章节时明确报错', () => {
+    const long = '第一章长章\n' + '甲'.repeat(15000) + '\n第二章续章\n乙\n第三章终章\n丙';
+    const chapters = findChapters(long);
+    const all = splitByChapters(long);
+    assert.equal(all.length, 3);
+    assert.ok(all[0].end - all[0].start > 15000);
+    const selected = splitByChapters(long, { chapterStart: 2, chapterEnd: 3 });
+    assert.equal(selected[0].start, chapters[1].start);
+    assert.equal(selected.at(-1).end, long.length);
+    const characterRange = splitByChapters(long, { start: chapters[1].start + 2, end: chapters[2].start + 2 });
+    assert.deepEqual(characterRange.map(chunk => [chunk.start, chunk.end]), selected.map(chunk => [chunk.start, chunk.end]));
+    assert.throws(() => splitByChapters('没有标题的正文'), /未识别到章节标题/);
+    assert.throws(() => splitByChapters(long, { chaptersPerChunk: 0 }), /正整数/);
+    assert.throws(() => splitByChapters(long, { chapterStart: 0 }), /章节范围/);
+    assert.throws(() => splitByChapters(long, { chapterEnd: 4 }), /章节范围/);
+    assert.throws(() => splitByChapters(long, { chapterStart: 3, chapterEnd: 2 }), /章节范围/);
+    assert.ok(splitText('没有标题的正文', { size: 4, overlap: 0 }).length > 1);
+});
+
+test('章节计划保存方式、分组与范围，按章忽略字数重叠且兼容旧任务', async () => {
+    const text = '介绍\n第998章紫剑的来由\n甲\n第999章归途\n乙\nChapter 1000 Return\n丙';
+    const { repo, project } = await setup(text);
+    const host = hostMock();
+    const queue = createQueue({ repo, host });
+    const run = await queue.plan({ projectId: project.id, splitMode: 'chapters', chaptersPerChunk: 2, chapterStart: 2, chapterEnd: 3, chunkSize: 2, overlap: 9999 });
+    assert.equal(run.splitMode, 'chapters');
+    assert.equal(run.chaptersPerChunk, 2);
+    assert.equal(run.chapterStart, 2); assert.equal(run.chapterEnd, 3);
+    assert.equal(run.chunks.length, 1); assert.equal(run.overlap, 0);
+    await queue.run(run.id);
+    assert.equal(host.calls[0].input, text.slice(findChapters(text)[1].start));
+    assert.equal((await repo.getRun(run.id)).chunks[0].chapterStart, 2);
+    const legacy = await queue.plan({ projectId: project.id, chunkSize: 15, overlap: 0 });
+    delete legacy.splitMode;
+    await repo.saveRun(legacy);
+    await queue.run(legacy.id);
+    assert.equal((await repo.getRun(legacy.id)).status, 'done');
+});
+
+test('删除所选块持久保存并重排索引，保留其余块 ID、范围和成果，备份导入一致', async () => {
+    const { backend, repo, project } = await setup();
+    const host = hostMock();
+    const queue = createQueue({ repo, host });
+    const run = await queue.plan({ projectId: project.id, chunkSize: 4, overlap: 0 });
+    await queue.run(run.id);
+    const lastBefore = await repo.getChunk(run.id, run.chunks[2].id);
+    const deleted = run.chunks[1].id;
+    const updated = await repo.deleteChunks(run.id, [deleted, deleted]);
+    assert.deepEqual(updated.chunks.map(chunk => chunk.id), [run.chunks[0].id, run.chunks[2].id]);
+    assert.deepEqual(updated.chunks.map(chunk => chunk.index), [0, 1]);
+    assert.equal(backend.files.has(`jl-chunk-${run.id}-${deleted}.json`), false);
+    const reopenedRepo = createRepository(backend);
+    const reopened = await reopenedRepo.getRun(run.id);
+    const last = await reopenedRepo.getChunk(run.id, lastBefore.id);
+    assert.equal(last.index, 1);
+    for (const key of ['id', 'start', 'end', 'label', 'output']) assert.equal(last[key], lastBefore[key]);
+    assert.equal(reopened.status, 'done');
+    assert.equal((await reopenedRepo.listRuns(project.id))[0].counts.done, 2);
+    assert.equal(await reopenedRepo.readSourceFile(run.sourceFile), 'abcdefghijkl');
+    const merge = await createQueue({ repo: reopenedRepo, host }).merge(run.id);
+    assert.equal(merge.text, '<answer>abcd</answer>\n\n<answer>ijkl</answer>');
+    const backup = await reopenedRepo.exportProject(project.id);
+    assert.equal(backup.runs[0].chunks.length, 2);
+    const imported = await reopenedRepo.importProject(backup);
+    const importedRun = await reopenedRepo.getRun(imported.runs[0].id);
+    assert.equal(importedRun.chunks.length, 2);
+    assert.deepEqual(importedRun.chunks.map(chunk => chunk.index), [0, 1]);
+    assert.ok(importedRun.chunks.every(chunk => !run.chunks.some(old => old.id === chunk.id)));
+    assert.deepEqual(importedRun.pendingChunkDeletes, []);
+    assert.equal((await createQueue({ repo: reopenedRepo, host }).merge(importedRun.id)).text, merge.text);
+    await assert.rejects(repo.saveRun(run), /分块已删除/);
+});
+
+test('删除仅限当前任务并保护 running 状态，不影响其他任务和项目', async () => {
+    const { repo, project, backend } = await setup();
+    const queue = createQueue({ repo, host: hostMock() });
+    const first = await queue.plan({ projectId: project.id, chunkSize: 4, overlap: 0 });
+    const second = await queue.plan({ projectId: project.id, chunkSize: 6, overlap: 0 });
+    const otherProject = await repo.createProject({ title: '另一部', sourceText: '别的小说正文' });
+    const other = await queue.plan({ projectId: otherProject.id, chunkSize: 4, overlap: 0 });
+    await assert.rejects(repo.deleteChunks(first.id, [second.chunks[0].id]), /不属于此任务/);
+    await repo.deleteChunks(first.id, [first.chunks[0].id]);
+    assert.equal((await repo.getRun(second.id)).chunks.length, 2);
+    assert.equal((await repo.getRun(other.id)).chunks.length, other.chunks.length);
+    assert.equal(await repo.getSource(otherProject.id), '别的小说正文');
+    let running = await repo.getChunk(second.id, second.chunks[0].id);
+    running.status = 'running';
+    await repo.saveChunk(second.id, running);
+    await assert.rejects(repo.deleteChunks(second.id, [running.id]), /请先暂停/);
+    // Simulate a first-attempt detail file committed just before its manifest write failed.
+    const stale = JSON.parse(backend.files.get(`jl-run-${second.id}.json`));
+    stale.status = 'pending'; stale.chunks[0].status = 'pending';
+    backend.files.set(`jl-run-${second.id}.json`, JSON.stringify(stale));
+    await assert.rejects(repo.deleteChunks(second.id, [running.id]), /正在处理/);
+    assert.equal((await repo.getRun(second.id)).chunks.length, 2);
+});
+
+test('删除空任务可重开和合并，旧成果不复活且没有隐式模型调用', async () => {
+    const { repo, project, backend } = await setup();
+    const host = hostMock();
+    const queue = createQueue({ repo, host });
+    const run = await queue.plan({ projectId: project.id, chunkSize: 4, overlap: 0 });
+    await queue.run(run.id);
+    const updated = await repo.deleteChunks(run.id, run.chunks.map(chunk => chunk.id));
+    assert.deepEqual(updated.chunks, []);
+    const reopened = createRepository(backend);
+    const resumed = createQueue({ repo: reopened, host });
+    await resumed.recover(project.id);
+    const merged = await resumed.merge(run.id);
+    assert.equal(merged.text, ''); assert.equal(merged.incomplete, false); assert.equal(merged.counts.total, 0);
+    await resumed.run(run.id);
+    assert.equal(host.calls.length, 3);
+    assert.deepEqual((await reopened.exportProject(project.id)).runs[0].chunks, []);
+    assert.equal(await reopened.getSource(project.id), 'abcdefghijkl');
+});
+
+test('删除先提交 manifest 再清理文件，清理失败可重试且其余成果不丢失', async () => {
+    const { repo, project, backend } = await setup();
+    const queue = createQueue({ repo, host: hostMock() });
+    const run = await queue.plan({ projectId: project.id, chunkSize: 4, overlap: 0 });
+    await queue.run(run.id);
+    const deleted = run.chunks[1].id;
+    const oldRemove = backend.remove.bind(backend);
+    let fail = true;
+    backend.remove = async name => {
+        const manifest = JSON.parse(backend.files.get(`jl-run-${run.id}.json`));
+        assert.equal(manifest.chunks.some(chunk => chunk.id === deleted), false);
+        if (fail && name === `jl-chunk-${run.id}-${deleted}.json`) throw new Error('删除文件失败');
+        return oldRemove(name);
+    };
+    await assert.rejects(repo.deleteChunks(run.id, [deleted]), error => error.cleanupPending === true);
+    const saved = await repo.getRun(run.id);
+    assert.deepEqual(saved.pendingChunkDeletes, [deleted]);
+    assert.equal(saved.chunks.length, 2);
+    assert.equal((await queue.merge(run.id)).counts.done, 2);
+    fail = false;
+    await repo.deleteChunks(run.id, [deleted]);
+    assert.equal(backend.files.has(`jl-chunk-${run.id}-${deleted}.json`), false);
+    assert.deepEqual((await repo.getRun(run.id)).pendingChunkDeletes, []);
+});
+
+test('删除 manifest 写入失败时不删除任何成果文件', async () => {
+    const { repo, project, backend } = await setup();
+    const queue = createQueue({ repo, host: hostMock() });
+    const run = await queue.plan({ projectId: project.id, chunkSize: 4, overlap: 0 });
+    await queue.run(run.id);
+    backend.failWhen(name => name === `jl-run-${run.id}.json`);
+    await assert.rejects(repo.deleteChunks(run.id, [run.chunks[1].id]), /磁盘写入失败/);
+    backend.failWhen(null);
+    assert.equal((await repo.getRun(run.id)).chunks.length, 3);
+    for (const chunk of run.chunks) assert.equal(backend.files.has(`jl-chunk-${run.id}-${chunk.id}.json`), true);
 });

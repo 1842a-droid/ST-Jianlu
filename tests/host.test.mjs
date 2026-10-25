@@ -194,3 +194,113 @@ test('native API entry opens its drawer without clicking the Connect button', ()
         assert.deepEqual(clicks, ['API-status-top', 'leftNavDrawerIcon', 'WIDrawerIcon']);
     } finally { globalThis.document = previous; }
 });
+
+function nativeModelControls(f, source = 'openai', { customInput = false, accept = true } = {}) {
+    const previous = { document: globalThis.document, jQuery: globalThis.jQuery, dollar: globalThis.$ };
+    const ids = { openai: 'model_openai_select', claude: 'model_claude_select', makersuite: 'model_google_select', openrouter: 'model_openrouter_select', custom: 'model_custom_select' };
+    const native = { current: 'model-A', calls: [], saves: 0 };
+    const option = (value, label, disabled = false) => ({ value, label, disabled });
+    const select = {
+        id: ids[source], tagName: 'SELECT', value: 'model-A', disabled: false,
+        options: [option('', 'Pick a model'), option('model-A', 'Model A'), option('model-B', 'Model B'), option('disabled-model', 'Disabled', true), option('model-B', 'Duplicate B')],
+        handle(type) { if (accept && type === 'change') { native.current = this.value; native.saves++; } },
+    };
+    const foreign = { id: 'model_claude_select', tagName: 'SELECT', value: 'foreign-A', options: [option('foreign-A', 'Foreign A'), option('foreign-B', 'Foreign B')] };
+    const input = {
+        id: 'custom_model_id', tagName: 'INPUT', type: 'text', value: 'model-A', disabled: false, readOnly: false,
+        handle(type) { if (accept && type === 'input') { native.current = this.value; native.saves++; } },
+    };
+    const elements = new Map([[foreign.id, foreign], [select.id, select]]);
+    if (customInput) elements.set(input.id, input);
+    f.ctx.chatCompletionSettings.chat_completion_source = source;
+    f.ctx.getChatCompletionModel = () => native.current;
+    globalThis.document = { getElementById: id => elements.get(id) || null };
+    globalThis.jQuery = control => ({
+        val(value) { control.value = value; return this; },
+        trigger(type) { native.calls.push([control.id, type]); control.handle?.(type); return this; },
+    });
+    return { native, select, foreign, input, elements, restore() { globalThis.document = previous.document; globalThis.jQuery = previous.jQuery; globalThis.$ = previous.dollar; } };
+}
+
+test('model list comes only from current source native options and keeps public labels', async () => {
+    const f = fixture(); const controls = nativeModelControls(f);
+    try {
+        const list = await f.host.models();
+        assert.deepEqual(list, { current: 'model-A', source: 'openai', editable: false, models: [{ id: 'model-A', label: 'Model A' }, { id: 'model-B', label: 'Model B' }] });
+        assert.equal(controls.native.calls.length, 0);
+        controls.elements.delete('model_openai_select');
+        assert.deepEqual((await f.host.models()).models, []);
+        await assert.rejects(f.host.setModel('foreign-B'), /暂无可用模型/);
+        assert.equal(controls.foreign.value, 'foreign-A');
+    } finally { controls.restore(); }
+});
+
+test('model changes use the current native selector and next capture stores real new model', async () => {
+    const f = fixture(); const controls = nativeModelControls(f);
+    try {
+        const before = await f.host.capture(f.state.input);
+        const changed = await f.host.setModel('model-B');
+        assert.equal(changed.model, 'model-B'); assert.equal(changed.source, 'openai');
+        assert.equal(controls.select.value, 'model-B'); assert.equal(controls.foreign.value, 'foreign-A');
+        assert.deepEqual(controls.native.calls, [['model_openai_select', 'change']]); assert.equal(controls.native.saves, 1);
+        const after = await f.host.capture(f.state.input);
+        assert.equal(before.profile.model, 'model-A'); assert.equal(after.profile.model, 'model-B');
+        assert.equal(f.state.sent, 0);
+    } finally { controls.restore(); }
+});
+
+test('Claude, Gemini and OpenRouter use their own native model selectors', async () => {
+    for (const [source, id] of [['claude', 'model_claude_select'], ['makersuite', 'model_google_select'], ['openrouter', 'model_openrouter_select']]) {
+        const f = fixture(); const controls = nativeModelControls(f, source);
+        try {
+            if (source === 'openrouter') controls.select.options.push({ value: 'OR_Website', label: 'Use website setting' });
+            assert.equal((await f.host.models()).source, source);
+            assert.equal((await f.host.models()).models.some(x => x.id === 'OR_Website'), false);
+            assert.equal((await f.host.setModel('model-B')).model, 'model-B');
+            assert.deepEqual(controls.native.calls, [[id, 'change']]);
+        } finally { controls.restore(); }
+    }
+});
+
+test('custom source can select a listed model or use its native text model ID field', async () => {
+    const f = fixture(); const controls = nativeModelControls(f, 'custom', { customInput: true });
+    try {
+        assert.equal((await f.host.models()).editable, true);
+        await f.host.setModel('model-B');
+        await f.host.setModel('provider/new-public-model');
+        assert.equal(controls.native.current, 'provider/new-public-model');
+        assert.deepEqual(controls.native.calls, [['model_custom_select', 'change'], ['custom_model_id', 'input']]);
+        assert.equal(controls.native.saves, 2);
+        assert.equal((await f.host.models()).current, 'provider/new-public-model');
+        assert.equal(f.ctx.chatCompletionSettings.custom_url, 'https://u:secret@example.test/v1?key=secret');
+        assert.equal(f.ctx.chatCompletionSettings.api_key, 'DO-NOT-SAVE');
+    } finally { controls.restore(); }
+});
+
+test('invalid/unavailable models fail before native change and an ignored native change is not a false success', async () => {
+    const f = fixture(); const controls = nativeModelControls(f, 'openai', { accept: false });
+    try {
+        for (const id of ['', 'bad\nmodel', 'disabled-model', 'not-in-list']) await assert.rejects(f.host.setModel(id));
+        assert.equal(controls.native.calls.length, 0);
+        await assert.rejects(f.host.setModel('model-B'), /酒馆未接受/);
+        assert.equal(controls.select.value, 'model-A'); assert.equal(controls.native.current, 'model-A');
+        assert.deepEqual(controls.native.calls, [['model_openai_select', 'change'], ['model_openai_select', 'change']]);
+    } finally { controls.restore(); }
+});
+
+test('model switches are refused while preparing, generating, or while native ST generates', async () => {
+    const f = fixture(); const controls = nativeModelControls(f);
+    try {
+        const preparing = f.host.capture(f.state.input);
+        await assert.rejects(f.host.setModel('model-B'), /当前任务/);
+        const snapshot = await preparing;
+        const generating = f.host.generate(snapshot);
+        await assert.rejects(f.host.setModel('model-B'), /当前任务/);
+        await generating;
+        f.script.isGenerating = () => true;
+        await assert.rejects(f.host.setModel('model-B'), /酒馆正在生成/);
+        assert.equal(controls.native.calls.length, 0);
+        f.script.isGenerating = () => false;
+        assert.equal((await f.host.setModel('model-B')).model, 'model-B');
+    } finally { controls.restore(); }
+});

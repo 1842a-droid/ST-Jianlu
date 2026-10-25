@@ -26,7 +26,7 @@ async function fixture() {
     const project = await repo.createProject({ title: '项目甲', sourceName: '甲.txt', sourceText: '第一章\n甲乙丙丁。第二章\n戊己庚辛。' });
     const run = await realQueue.plan({ projectId: project.id, chunkSize: 7, overlap: 0 });
     await controller.handle('openProject', { id: project.id });
-    return { repo, host, queue, controller, project, run, starts, calls, shown: () => shown, captureCount: () => captureCount };
+    return { repo, host, queue, ui, controller, project, run, starts, calls, shown: () => shown, captureCount: () => captureCount };
 }
 
 test('原文解码支持 UTF-8、UTF-16 BOM、GB18030，导出文件名安全', () => {
@@ -96,3 +96,44 @@ test('项目选择与筛选保持隔离，返回列表不影响正在执行队�
     assert.equal(f.controller.state.projects.length, 2);
     f.controller.destroy();
 });
+
+function withMinimalDocument(action) {
+    const previous = globalThis.document;
+    globalThis.document = { createElement: () => ({ setAttribute() {}, append() {} }) };
+    return Promise.resolve().then(action).finally(() => { globalThis.document = previous; });
+}
+
+test('任务操作按选择执行；继续剩余不受选择影响', () => withMinimalDocument(async () => {
+    const f = await fixture();
+    const id = f.run.chunks[1].id;
+    await f.controller.handle('toggleChunk', { id, checked: true });
+    f.ui.dialog = async options => {
+        assert.equal(options.title, '任务操作'); assert.equal(options.layout, 'menu');
+        assert.equal(options.buttons.find(button => button.value === 'selected').disabled, false);
+        return 'selected';
+    };
+    await f.controller.handle('taskActions');
+    assert.deepEqual(f.starts[0].options.ids, [id]);
+    f.ui.dialog = async () => 'remaining';
+    await f.controller.handle('taskActions');
+    assert.deepEqual(f.starts[1].options, {});
+    f.controller.destroy();
+}));
+
+test('删除分块需要确认，只删除所选；取消及运行中不删除', () => withMinimalDocument(async () => {
+    const f = await fixture();
+    const id = f.run.chunks[0].id;
+    f.ui.dialog = async () => 'cancel';
+    await f.controller.handle('deleteChunks', { ids: [id] });
+    assert.equal((await f.repo.getRun(f.run.id)).chunks.length, f.run.chunks.length);
+    f.ui.dialog = async () => 'delete';
+    await f.controller.handle('deleteChunks', { ids: [id] });
+    const remaining = await f.repo.getRun(f.run.id);
+    assert.equal(remaining.chunks.length, f.run.chunks.length - 1);
+    assert.equal(remaining.chunks.some(chunk => chunk.id === id), false);
+    assert.deepEqual(f.controller.state.selectedIds, []);
+    f.queue.current = () => ({ runId: f.run.id, projectId: f.project.id });
+    await assert.rejects(f.controller.handle('deleteChunks', { ids: [remaining.chunks[0].id] }), /请先暂停/);
+    assert.equal((await f.repo.getRun(f.run.id)).chunks.length, remaining.chunks.length);
+    f.controller.destroy();
+}));

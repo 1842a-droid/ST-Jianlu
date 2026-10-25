@@ -34,7 +34,8 @@ function runMeta(run) {
     return { id: run.id, projectId: run.projectId, title: run.title, createdAt: run.createdAt, updatedAt: run.updatedAt, status: run.status, total: run.chunks.length, counts };
 }
 function chunkMeta(chunk) {
-    return { id: chunk.id, index: chunk.index, label: chunk.label, start: chunk.start, end: chunk.end, status: chunk.status, attempts: chunk.attempts || 0, error: chunk.error || '', outputLength: String(chunk.output || '').length, finishReason: chunk.finishReason || '', updatedAt: chunk.updatedAt };
+    return { id: chunk.id, index: chunk.index, label: chunk.label, start: chunk.start, end: chunk.end, status: chunk.status, attempts: chunk.attempts || 0, error: chunk.error || '', outputLength: String(chunk.output || '').length, finishReason: chunk.finishReason || '', updatedAt: chunk.updatedAt,
+        ...(Number.isInteger(chunk.chapterStart) ? { chapterStart: chunk.chapterStart, chapterEnd: chunk.chapterEnd } : {}) };
 }
 function statusFor(chunks) {
     if (chunks.some(chunk => chunk.status === 'running')) return 'running';
@@ -133,7 +134,8 @@ export function createRepository(backend) {
         }
         if (data.id !== chunkId || data.runId !== runId) throw new Error('分块数据标识不匹配');
         if (!STATES.has(data.status) || data.start !== meta.start || data.end !== meta.end) throw new Error('分块数据格式无效');
-        return data;
+        // The manifest owns display order; deleting a block need not rewrite every retained result.
+        return { ...data, index: meta.index };
     }
     const api = {
         listProjects: () => after(async () => copy((await readIndex()).projects).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))),
@@ -187,7 +189,7 @@ export function createRepository(backend) {
                 const run = await readJson(runFile(meta.id), false);
                 if (run) {
                     if (run.projectId !== projectId) throw new Error('任务归属不匹配');
-                    for (const chunk of run.chunks) await remove(chunkFile(run.id, chunk.id));
+                    for (const chunkId of new Set([...run.chunks.map(chunk => chunk.id), ...(run.pendingChunkDeletes || [])])) await remove(chunkFile(run.id, chunkId));
                     await remove(runFile(run.id));
                 }
             }
@@ -211,6 +213,11 @@ export function createRepository(backend) {
             }
             const old = await readJson(runFile(value.id), false);
             if (old && old.projectId !== value.projectId) throw new Error('禁止改变任务归属');
+            if (old) {
+                if (value.chunks.some(chunk => old.deletedChunkIds?.includes(chunk.id))) throw new Error('分块已删除，请刷新任务');
+                if (old.deletedChunkIds) value.deletedChunkIds = copy(old.deletedChunkIds);
+                if (old.pendingChunkDeletes) value.pendingChunkDeletes = copy(old.pendingChunkDeletes);
+            }
             value.updatedAt = now();
             return persistRun(value);
         }),
@@ -223,8 +230,10 @@ export function createRepository(backend) {
             const index = run.chunks.findIndex(item => item.id === value.id);
             if (index < 0 || (value.runId && value.runId !== runId)) throw new Error('分块归属不匹配');
             validateRange(value, run.sourceLength);
+            if (value.start !== run.chunks[index].start || value.end !== run.chunks[index].end) throw new Error('禁止改变分块原文范围');
             if (!STATES.has(value.status)) throw new Error('分块状态无效');
             value.runId = runId;
+            value.index = run.chunks[index].index;
             value.output = String(value.output || '');
             value.updatedAt = now();
             await writeJson(chunkFile(runId, value.id), value);
@@ -233,6 +242,47 @@ export function createRepository(backend) {
             run.updatedAt = now();
             await persistRun(run);
             return copy(value);
+        }),
+        deleteChunks: (runId, ids) => serial(async () => {
+            if (!Array.isArray(ids)) throw new Error('请选择要删除的分块');
+            const selected = new Set(ids.map(id));
+            const run = await readRun(runId);
+            if (!selected.size) return copy(run);
+            const deleted = new Set((run.deletedChunkIds || []).map(id));
+            const pending = new Set((run.pendingChunkDeletes || []).map(id));
+            const owned = new Set([...run.chunks.map(chunk => chunk.id), ...deleted, ...pending]);
+            if ([...selected].some(chunkId => !owned.has(chunkId))) throw new Error('选中的分块不属于此任务');
+            if (run.status === 'running' || run.chunks.some(chunk => chunk.status === 'running')) throw new Error('请先暂停任务再删除分块');
+            for (const meta of run.chunks.filter(chunk => selected.has(chunk.id))) {
+                const chunk = await readJson(chunkFile(runId, meta.id), false);
+                if (chunk && (chunk.id !== meta.id || chunk.runId !== runId)) throw new Error('分块数据标识不匹配');
+                if (chunk?.status === 'running') throw new Error('请先恢复或暂停正在处理的分块');
+            }
+            const live = run.chunks.filter(chunk => selected.has(chunk.id));
+            for (const chunk of live) { deleted.add(chunk.id); pending.add(chunk.id); }
+            if (!live.length && !pending.size) return copy(run);
+            run.chunks = run.chunks.filter(chunk => !selected.has(chunk.id)).sort((a, b) => a.index - b.index).map((chunk, index) => ({ ...chunk, index }));
+            run.deletedChunkIds = [...deleted];
+            run.pendingChunkDeletes = [...pending];
+            run.status = statusFor(run.chunks);
+            run.updatedAt = now();
+            // Commit references first. A failed physical cleanup can never erase a retained block.
+            await persistRun(run);
+            const failures = [];
+            for (const chunkId of pending) {
+                try { await remove(chunkFile(runId, chunkId)); }
+                catch (error) { failures.push({ chunkId, error }); }
+            }
+            run.pendingChunkDeletes = failures.map(failure => failure.chunkId);
+            await persistRun(run);
+            if (failures.length) {
+                const error = new Error('分块已从任务移除，部分成果文件清理失败，请重试删除');
+                error.cause = failures[0].error;
+                error.run = copy(run);
+                error.cleanupPending = true;
+                throw error;
+            }
+            return copy(run);
         }),
         exportProject: projectId => after(async () => {
             const project = await readProject(projectId);
@@ -285,7 +335,7 @@ export function createRepository(backend) {
                     await writeJson(chunkFile(runId, chunk.id), chunk);
                     chunks.push(chunkMeta(chunk));
                 }
-                const run = withoutSecrets({ ...oldRun, id: runId, projectId, sourceFile: sourceMap.get(oldRun.sourceFile), status: oldRun.status === 'running' ? 'paused' : oldRun.status, chunks, updatedAt: now() });
+                const run = withoutSecrets({ ...oldRun, id: runId, projectId, sourceFile: sourceMap.get(oldRun.sourceFile), status: oldRun.status === 'running' ? 'paused' : oldRun.status, chunks, deletedChunkIds: [], pendingChunkDeletes: [], updatedAt: now() });
                 await writeJson(runFile(runId), run);
                 project.runs.push(runMeta(run));
             }

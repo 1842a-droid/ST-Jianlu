@@ -4,7 +4,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>笺录 · 界面检查</title>
 <link rel="stylesheet" href="../style.css">
-<style>body{margin:0;background:#e8ece6;font-family:system-ui}</style>
+<style>
+body{margin:0;background:#e8ece6;font-family:system-ui;overflow:hidden;height:100vh;touch-action:none}
+/* Deliberately hostile host-theme rules: these must not reach the plugin. */
+select{color:#ead7a5!important;background:#f3f3f3!important}
+input[type=checkbox]{appearance:none!important;width:18px;height:18px}
+input[type=checkbox]::before{content:'☆';font-size:20px}
+button{font-size:21px;color:#b47d22}
+</style>
 <body>
 <script type="module">
 import { createRepository } from '../store.js';
@@ -13,8 +20,11 @@ import { createController } from '../app.js';
 import { createUI } from '../ui.js';
 const data = new Map();
 const repo = createRepository({read: async name => data.get(name) ?? null,write: async (name,text) => data.set(name,text),remove: async name => data.delete(name)});
+let currentModel='模型甲';
 const host = {
-  info: () => ({available:true,supported:true,presetName:'我的预设',model:'当前连接',api:'openai'}),
+  info: () => ({available:true,supported:true,presetName:'我的预设',model:currentModel,api:'openai',source:'custom'}),
+  models: async()=>({current:currentModel,source:'custom',models:[{id:'模型甲',label:'模型甲'},{id:'模型乙',label:'模型乙'}]}),
+  setModel:async id=>{currentModel=id;return host.info();},
   capture: async input => ({messages:[{role:'user',content:input}],profile:{presetName:'我的预设',model:'当前连接'}}),
   generate: async () => {throw new Error('界面检查不调用模型');},
   notify: message => console.info(message),subscribe: () => () => {},
@@ -25,9 +35,9 @@ let app;
 const ui=createUI({onAction:(type,payload)=>app.handle(type,payload)});
 app=createController({repo,host,queue,ui,context:()=>({extensionSettings:{jianlu:{theme:'light',fontSize:13}}})});
 await app.init();
-const source='第一章 雾中的信\n\n清晨，码头收到一封没有署名的信。沈青把信放进外套口袋，沿着旧石阶走向钟楼。\n\n'+('海风吹过廊桥，路灯次第熄灭。\n'.repeat(25))+'\n第二章 钟楼\n\n钟声响起时，守门人终于打开了门。\n'+('她记下门牌，继续向前走。\n'.repeat(25));
+const source=Array.from({length:40},(_,i)=>`第${i+1}章${['雾中的信','钟楼','长街','海风'][i%4]}\n\n清晨，码头收到一封没有署名的信。沈青把信放进外套口袋，沿着旧石阶走向钟楼。\n\n${'海风吹过廊桥，路灯次第熄灭。\n'.repeat(12)}\n`).join('');
 const project=await repo.createProject({title:'雾港来信',sourceName:'雾港来信.txt',sourceText:source});
-const run=await queue.plan({projectId:project.id,title:'第一轮处理',chunkSize:220,overlap:30});
+const run=await queue.plan({projectId:project.id,title:'第一轮处理',splitMode:'chapters',chaptersPerChunk:1});
 for(const [i,status] of ['done','done','failed','partial'].entries()){
  const chunk=await repo.getChunk(run.id,run.chunks[i].id);
  await repo.saveChunk(run.id,{...chunk,status,output:status==='done'?'这里是已保存的处理结果。':status==='partial'?'已经输出的一部分内容':'',error:status==='failed'?'连接中断':''});
