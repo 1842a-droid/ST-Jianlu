@@ -1,4 +1,5 @@
-import { normalizeEntity, mergeEntities, entityInstructions, collectContext, parseEntities } from './library.js';
+import { createPublishUI } from './publish-ui.js';
+import { normalizeEntity, mergeEntities, entityInstructions, collectContext, parseEntities, PROMPT_TYPES, DEFAULT_PROMPTS, promptFor } from './library.js';
 import { newId } from './store.js';
 import { characterCard, worldEntry } from './tavern.js';
 import { copyText } from './ui.js';
@@ -12,49 +13,80 @@ function input(value=''){return el('input',undefined,{value,autocomplete:'off'})
 function area(value='',rows=7){return el('textarea',undefined,{value,rows,spellcheck:false});}
 function download(name,text,type='application/json'){const u=URL.createObjectURL(new Blob([text],{type}));const a=el('a',undefined,{href:u,download:name.replace(/[<>:"/\\|?*]/g,'_')});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),10000);}
 
-export function createLibraryUI({repo,queue,ui,tavern,getProject,getRun,onRun,onUpdate,notify}) {
+export function createLibraryUI({repo,host,queue,ui,tavern,getProject,getRun,onRun,onUpdate,notify}) {
     async function editEntity(record={}) {
         const body=form();
+        body.className='jl-form jl-entity-form';
         const type=field(body,'类型',select(types,record.type||'character'));
         const name=field(body,'检索名称',input(record.name));
         const output=field(body,'输出主名称',input(record.outputName||record.name));
-        const aliases=field(body,'真正的同人别名',area((record.aliases||[]).join('\n'),3));
+        const aliases=field(body,'同一对象别名',area((record.aliases||[]).join('\n'),3));
         const search=field(body,'附加检索词',area((record.searchTerms||[]).join('\n'),3));
-        const related=field(body,'关联背景词（非同人别名）',area((record.contextTerms||[]).join('\n'),3));
+        const related=field(body,'关联背景词（不作别名）',area((record.contextTerms||[]).join('\n'),3));
         const stage=field(body,'限定阶段',input(record.stage));
         const notes=field(body,'补充要求',area(record.notes,3));
         const content=field(body,'已保存资料',area(record.content,12));
+        content.parentElement.className='jl-wide-field';
         for(;;){const choice=await ui.dialog({title:record.id?'编辑资料':'新增人物 / 道具',body,layout:'wide',buttons:[{label:'取消',value:'cancel'},{label:'保存',value:'save',primary:true}]});if(choice!=='save')return null;
             try{return normalizeEntity({...record,type:type.value,name:name.value,outputName:output.value,aliases:aliases.value,searchTerms:search.value,contextTerms:related.value,stage:stage.value,notes:notes.value,content:content.value});}catch(e){notify(e.message,'error');}}
     }
 
-    async function publish({text='',name='',entries}={}) {
-        const targets=await tavern.targets(); const project=getProject();
-        const list=entries?.length?entries:[{name:name||project?.title||'新资料',content:text,keys:[name||'新资料']}];
-        if(list.some(x=>!String(x.content||'').trim()))throw new Error('所选资料中有空内容，请先保存输出');
-        const multi=list.length>1;const body=form();
-        const kind=field(body,'写入位置',select([['character','角色卡'],['world','世界书']],'character'));
-        const title=field(body,'新建名称',input(name||list[0].name));
-        const character=field(body,'目标角色卡',select([['new','新建角色卡'],...targets.characters.map(x=>[x.id,x.name])],'new'));
-        const cardField=field(body,'写入字段',select([['description','角色描述'],['personality','性格'],['scenario','场景'],['first_mes','开场白'],['mes_example','对话示例']],'description'));
-        const mode=field(body,'写入方式',select([['append','追加到字段'],['replace','替换该字段']],'append'));
-        const book=field(body,'目标世界书',select([['new','新建世界书'],...targets.worldbooks.map(x=>[x,x])],'new'));
-        const keys=field(body,'触发词',input((list[0].keys||[list[0].name]).join('、')));
-        const content=field(body,multi?'待写入条目（JSON 数组）':'待写入内容',area(multi?JSON.stringify(list,null,2):list[0].content,16));
-        const sync=()=>{const c=kind.value==='character';character.parentElement.hidden=!c;cardField.parentElement.hidden=!c;mode.parentElement.hidden=!c||character.value==='new';book.parentElement.hidden=c;keys.parentElement.hidden=c||multi;title.parentElement.hidden=c?character.value!=='new'||multi:book.value!=='new';};
-        kind.onchange=character.onchange=book.onchange=sync;sync();
-        for(;;){const value=await ui.dialog({title:'写入酒馆',body,layout:'wide',buttons:[{label:'取消',value:'cancel'},{label:'写入',value:'write',primary:true}]});if(value!=='write')return;
+    const publish = createPublishUI({tavern,ui,getProject,notify});
+
+    async function previewPrompt(record, data) {
+        const project=getProject();
+        const source=await repo.getSource(project.id);
+        const found=record?collectContext(source,[record.name,...record.aliases,...record.searchTerms,...record.contextTerms],{maxChars:60000}):null;
+        const material=found?.text||source.slice(0,4000);
+        if(!material.trim())throw new Error('没有可预览的小说材料');
+        const instructions=data.previewInstructions??(record?entityInstructions(record,{format:data.format||'',prompts:data.prompts||{},check:Boolean(data.previewCheck)}):'');
+        let text=instructions;
+        try{
+            if(!host?.capture)throw new Error('当前环境无法读取酒馆预设');
+            const snapshot=await host.capture(material,{projectTitle:project.title,blockIndex:0,blockTotal:1,blockLabel:record?.outputName||'提示词预览',instructions});
+            text=JSON.stringify(snapshot.messages,null,2);
+        }catch(error){text=`酒馆预设预览：${error.message}\n\n【对象要求】\n${instructions}\n\n【材料】\n${material}`;}
+        const body=form();field(body,'完整请求（当前预览，不调用模型）',Object.assign(area(text,24),{readOnly:true}));
+        const value=await ui.dialog({title:'完整提示词',body,layout:'wide',buttons:[{label:'返回',value:'close'},{label:'复制',value:'copy'}]});
+        if(value==='copy'){await copyText(text);notify('已复制','success');}
+    }
+
+    async function openPrompts({record=null,inline=false}={}) {
+        const project=getProject();if(!project)throw new Error('请先打开小说项目');
+        let data=await repo.getLibrary(project.id);
+        const drafts=Object.fromEntries(PROMPT_TYPES.map(([key])=>[key,promptFor(data.prompts,key)]));
+        const body=form();body.className='jl-form jl-prompt-editor';
+        const type=field(body,'提示词类型',select(PROMPT_TYPES,record?.type||'character'));type.disabled=Boolean(record);
+        const macros=el('div',undefined,{className:'jl-prompt-tools'});
+        const editor=field(body,'相关提示词',area(record?.prompt||drafts[type.value],18));
+        let inherit=record?!record.prompt:false;
+        for(const token of ['name','search_name','aliases','context_terms','stage','notes','existing']){
+            const insert=el('button',`{{${token}}}`,{type:'button'});insert.onclick=()=>{const start=editor.selectionStart??editor.value.length,end=editor.selectionEnd??start;editor.value=editor.value.slice(0,start)+`{{${token}}}`+editor.value.slice(end);inherit=false;drafts[type.value]=editor.value;update();editor.focus?.();};macros.append(insert);
+        }
+        body.insertBefore?body.insertBefore(macros,editor.parentElement):body.prepend(macros);
+        const effective=record?field(body,'本次对象要求',Object.assign(area('',12),{readOnly:true})):null;
+        const update=()=>{if(effective)effective.value=entityInstructions({...record,prompt:editor.value},{format:data.format||'',prompts:data.prompts||{}});};
+        editor.oninput=()=>{inherit=false;drafts[type.value]=editor.value;update();};
+        let lastType=type.value;
+        type.onchange=()=>{drafts[lastType]=editor.value;lastType=type.value;editor.value=drafts[type.value];};
+        update();
+        for(;;){
+            const value=await ui.dialog({title:record?`${record.outputName||record.name} · 提示词`:'提示词',body,layout:inline||record?'wide':'page',page:'prompts',buttons:[{label:'恢复默认',value:'reset'},{label:'复制',value:'copy'},{label:'查看完整请求',value:'preview'},{label:'保存',value:'save',primary:true},{label:'关闭',value:'close'}]});
+            if(!value||value==='close')return;
             try{
-                const data=multi?JSON.parse(content.value):[{name:title.value||list[0].name,content:content.value,keys:keys.value.split(/[\n,，、]+/).filter(Boolean)}];
-                if(!Array.isArray(data)||!data.length||data.some(x=>!String(x.name||'').trim()||!String(x.content||'').trim()))throw new Error('名称或内容为空');
-                if(kind.value==='world')await tavern.writeWorldbook({name:book.value==='new'?title.value.trim():book.value,create:book.value==='new',entries:data});
-                else if(character.value==='new'){
-                    for(let i=0;i<data.length;i++){
-                        await tavern.writeCharacter({target:'new',name:multi?data[i].name:title.value.trim(),content:data[i].content,field:cardField.value});
-                        if(multi){ data.splice(i,1); i--; content.value=JSON.stringify(data,null,2); }
-                    }
-                }else await tavern.writeCharacter({target:character.value,content:data.map(x=>multi?`${x.name}\n${x.content}`:x.content).join('\n\n'),field:cardField.value,mode:mode.value});
-                notify('已写入酒馆','success');return;
+                if(value==='reset'){editor.value=record?promptFor(data.prompts,record.type):DEFAULT_PROMPTS[type.value];inherit=Boolean(record);drafts[type.value]=editor.value;update();}
+                if(value==='copy'){await copyText(editor.value);notify('已复制','success');}
+                if(value==='preview'){
+                    drafts[type.value]=editor.value;
+                    const item=record?{...record,prompt:editor.value}:((data.items||[]).map(normalizeEntity).find(x=>x.type===type.value)||normalizeEntity({name:'示例对象',type:type.value}));
+                    await previewPrompt(record?item:{...item,prompt:''},{...data,prompts:{...drafts},previewCheck:type.value==='check',...(type.value==='scan'?{previewInstructions:editor.value}:{})});
+                }
+                if(value==='save'){
+                    const latest=await repo.getLibrary(project.id);
+                    if(record){const item=latest.items.find(x=>x.id===record.id);if(!item)throw new Error('该资料已不存在');item.prompt=inherit?'':editor.value;record.prompt=item.prompt;}
+                    else {drafts[type.value]=editor.value;latest.prompts={...drafts};}
+                    await repo.saveLibrary(project.id,latest);data=latest;onUpdate?.();notify('提示词已保存','success');
+                }
             }catch(error){notify(error.message,'error');}
         }
     }
@@ -109,7 +141,7 @@ export function createLibraryUI({repo,queue,ui,tavern,getProject,getRun,onRun,on
                 const candidate=check?{...item,content:items.length===1?review.value:reviews.find(x=>x.id===item.id).content}:item;
                 if(check&&!candidate.content.trim())throw new Error(`请填写「${item.outputName}」的待检查资料`);
                 const context=usePaste?{text:source,matches:1,truncated:false}:collectContext(source,[item.name,...item.aliases,...item.searchTerms,...item.contextTerms],{maxChars:limit,radius:window});if(!context.matches)throw new Error(`未找到「${item.name}」的原文，请修改检索名称`);if(context.truncated)truncated++;
-                return{label:item.outputName||item.name,sourceText:context.text,entityId:item.id,outputName:item.outputName,instructions:[entityInstructions(candidate,{format:format.value,check}),user.value].filter(Boolean).join('\n\n')};});
+                return{label:item.outputName||item.name,sourceText:context.text,entityId:item.id,outputName:item.outputName,instructions:[entityInstructions(candidate,{format:format.value,check,prompts:data.prompts||{}}),user.value].filter(Boolean).join('\n\n')};});
             if(truncated){const confirm=await ui.dialog({title:'材料范围',body:el('p',`${truncated} 个对象命中材料超过上限。是否使用上限内材料？取消后可调整为 0 或更大的值。`),buttons:[{label:'取消',value:'cancel'},{label:'使用当前范围',value:'yes',primary:true}]});if(confirm!=='yes')continue;}
             const run=await queue.plan({projectId:project.id,title:`${check?'自检':'生成资料'} · ${items.map(x=>x.outputName).join('、')}`,units,inputName:'对象检索材料',sourceKind:'paste'});onRun(run);return true;
             }catch(error){notify(error.message,'error');}
@@ -128,11 +160,14 @@ export function createLibraryUI({repo,queue,ui,tavern,getProject,getRun,onRun,on
             const render=()=>{
                 list.replaceChildren();const shown=data.items.filter(x=>(filter==='all'||x.type===filter)&&[x.name,x.outputName,...x.aliases,...x.contextTerms].join(' ').toLowerCase().includes(query.toLowerCase()));
                 for(const item of shown){const row=el('div',undefined,{className:'jl-library-row'});const check=el('input',undefined,{type:'checkbox',checked:selected.has(item.id)});check.setAttribute('aria-label',`选择资料 ${item.outputName}`);check.onchange=()=>{check.checked?selected.add(item.id):selected.delete(item.id);count.textContent=`已选 ${selected.size}`;};
-                    const edit=el('button',undefined,{type:'button',className:'jl-library-edit'});edit.append(el('strong',item.outputName),el('span',`${types.find(x=>x[0]===item.type)?.[1]} · 检索 ${item.name}${item.content?' · 已有资料':''}`,{className:'jl-muted'}));edit.onclick=()=>{edit.disabled=true;editEntity(item).then(async value=>{if(value){data.items[data.items.findIndex(x=>x.id===item.id)]=value;await save();render();}}).catch(e=>notify(e.message,'error')).finally(()=>{edit.disabled=false;});};row.append(check,edit);list.append(row);}
+                    const edit=el('button',undefined,{type:'button',className:'jl-library-edit'});edit.append(el('strong',item.outputName),el('span',`${types.find(x=>x[0]===item.type)?.[1]} · 检索 ${item.name}${item.content?' · 已有资料':''}`,{className:'jl-muted'}));edit.onclick=()=>{edit.disabled=true;editEntity(item).then(async value=>{if(value){data.items[data.items.findIndex(x=>x.id===item.id)]=value;await save();render();}}).catch(e=>notify(e.message,'error')).finally(()=>{edit.disabled=false;});};const quick=el('div',undefined,{className:'jl-library-row-actions'});
+                    const prompt=el('button','提示词',{type:'button'});prompt.onclick=()=>{prompt.disabled=true;openPrompts({record:item,inline:true}).then(async()=>{data=await repo.getLibrary(project.id);data.items=data.items.map(normalizeEntity);render();}).catch(e=>notify(e.message,'error')).finally(()=>{prompt.disabled=false;});};
+                    const write=el('button','写入酒馆',{type:'button'});write.disabled=!item.content;write.onclick=()=>{write.disabled=true;publish({name:item.outputName,text:item.content,entries:[{name:item.outputName,content:item.content,keys:[item.name,...item.aliases]}]}).catch(e=>notify(e.message,'error')).finally(()=>{write.disabled=!item.content;});};
+                    quick.append(prompt,write);row.append(check,edit,quick);list.append(row);}
                 if(!shown.length)list.append(el('p','暂无资料',{className:'jl-muted'}));
             };
             search.oninput=()=>{query=search.value;render();};type.onchange=()=>{filter=type.value;render();};selectAll.onclick=()=>{data.items.forEach(x=>selected.add(x.id));count.textContent=`已选 ${selected.size}`;render();};clear.onclick=()=>{selected.clear();count.textContent='已选 0';render();};render();
-            let choice=await ui.dialog({title:'人物 / 道具',body,layout:'wide',buttons:[{label:'＋',value:'add'},{label:'资料操作',value:'actions'},{label:'生成所选',value:'generate',primary:true},{label:'关闭',value:'close'}]});
+            let choice=await ui.dialog({title:'资料',body,layout:'page',page:'library',buttons:[{label:'＋ 新增',value:'add'},{label:'资料操作',value:'actions'},{label:'生成所选',value:'generate',primary:true}]});
             if(!choice||choice==='close')return;
             try{
                 if(choice==='actions')choice=await actions();
@@ -140,7 +175,7 @@ export function createLibraryUI({repo,queue,ui,tavern,getProject,getRun,onRun,on
                 if(choice==='generate'||choice==='check'){if(await generate(choice==='check'))return;}
                 if(choice==='delete'){const yes=await ui.dialog({title:'删除资料',body:el('p',`删除 ${selected.size} 条资料？`),buttons:[{label:'取消',value:'cancel'},{label:'删除',value:'yes',danger:true}]});if(yes==='yes'){data.items=data.items.filter(x=>!selected.has(x.id));selected.clear();await save();}}
                 if(choice==='format'){const b=form(),t=field(b,'输出格式（留空跟随预设）',area(data.format,16));const v=await ui.dialog({title:'输出格式',body:b,buttons:[{label:'取消',value:'cancel'},{label:'保存',value:'save',primary:true}]});if(v==='save'){data.format=t.value;await save();}}
-                if(choice==='merge'){const b=form(),main=field(b,'主对象',select(chosen().map(x=>[x.id,x.outputName]),chosen()[0]?.id)),mode=field(b,'其他所选条目',select([['related','作为关联资料'],['aliases','确认是同人别名']],'related'));const v=await ui.dialog({title:'关联 / 合并',body:b,buttons:[{label:'取消',value:'cancel'},{label:'合并',value:'merge',primary:true}]});if(v==='merge'){const merged=mergeEntities(chosen(),main.value,mode.value==='aliases');data.items=data.items.filter(x=>!selected.has(x.id)||x.id===main.value).map(x=>x.id===main.value?merged:x);selected=new Set([main.value]);await save();}}
+                if(choice==='merge'){const b=form(),main=field(b,'主对象',select(chosen().map(x=>[x.id,x.outputName]),chosen()[0]?.id)),mode=field(b,'其他所选条目',select([['related','作为关联资料'],['aliases','确认为同一对象']],'related'));const v=await ui.dialog({title:'关联 / 合并',body:b,buttons:[{label:'取消',value:'cancel'},{label:'合并',value:'merge',primary:true}]});if(v==='merge'){const merged=mergeEntities(chosen(),main.value,mode.value==='aliases');data.items=data.items.filter(x=>!selected.has(x.id)||x.id===main.value).map(x=>x.id===main.value?merged:x);selected=new Set([main.value]);await save();}}
                 if(choice==='search'){const src=await repo.getSource(project.id),r=collectContext(src,chosen().flatMap(x=>[x.name,...x.aliases,...x.searchTerms,...x.contextTerms]));const b=form();b.append(el('p',`${r.matches} 处命中${r.truncated?' · 当前预览已达上限':''}`,{className:'jl-muted'}),area(r.text,18));const v=await ui.dialog({title:'原文检索',body:b,layout:'wide',buttons:[{label:'关闭',value:'cancel'},{label:'复制',value:'copy'}]});if(v==='copy')await copyText(r.text);}
                 if(choice==='publish')await publish({entries:chosen().map(x=>({name:x.outputName,content:x.content,keys:[x.name,...x.aliases]}))});
                 if(choice==='export')download(`${project.title}-人物道具.json`,JSON.stringify({kind:'jianlu-library',version:1,items:chosen()},null,2));
@@ -152,9 +187,9 @@ export function createLibraryUI({repo,queue,ui,tavern,getProject,getRun,onRun,on
                         try{let values,raw;try{raw=JSON.parse(text.value.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''));}catch{values=parseEntities(text.value);}if(!values){if(raw?.kind==='jianlu-library')values=raw.items.map(normalizeEntity);else if(raw?.library?.items)values=raw.library.items.map(normalizeEntity);else if(raw?.spec?.startsWith('chara_card_'))values=[normalizeEntity({name:raw.data?.name||raw.name,content:raw.data?.description||raw.description})];else values=parseEntities(text.value);}
                         data.items.push(...values.map(x=>({...x,id:newId()})));await save();notify(`已导入 ${values.length} 条资料`,'success');break;}catch(error){notify(error.message,'error');}}
                 }
-                if(choice==='scan'){if(queue.current())throw new Error('请先暂停当前任务');const run=await queue.plan({projectId:project.id,title:'扫描人物与道具名称',instructions:'从当前小说片段列出明确出现的人物、道具、设定。只输出 JSON 数组，每项如 {"name":"原文名称","type":"character","aliases":[],"contextTerms":[]}。type 只选 character、prop、setting 之一。别名必须确指同一主体，族群和道具不作为人物别名。'});onRun(run);return;}
+                if(choice==='scan'){if(queue.current())throw new Error('请先暂停当前任务');const run=await queue.plan({projectId:project.id,title:'扫描人物与道具名称',instructions:promptFor(data.prompts,'scan')});onRun(run);return;}
             }catch(error){notify(error.message,'error');}
         }
     }
-    return {open,saveOutput,publish};
+    return {open,openPrompts,saveOutput,publish};
 }

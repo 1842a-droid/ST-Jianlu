@@ -31,7 +31,7 @@ async function fixture(action){
 test('资料自检可编辑待检内容并改用粘贴材料，建计划不会调用模型或改小说',()=>fixture(async f=>{
     let step=0;
     f.ui.dialog=async options=>{
-        if(step++===0){assert.equal(options.title,'人物 / 道具');walk(options.body).find(n=>n.textContent==='全选').onclick();return 'actions';}
+        if(step++===0){assert.equal(options.title,'资料');walk(options.body).find(n=>n.textContent==='全选').onclick();return 'actions';}
         if(options.title==='资料操作')return 'check';
         assert.equal(options.title,'自检所选资料');
         const scan=field(options.body,'扫描材料');scan.value='paste';scan.onchange();
@@ -47,9 +47,34 @@ test('资料自检可编辑待检内容并改用粘贴材料，建计划不会�
 test('资料导入接受代码围栏中的 JSON，重复名称使用不同标识',()=>fixture(async f=>{
     let page=0;
     f.ui.dialog=async options=>{
-        if(options.title==='人物 / 道具')return page++===0?'actions':'close';
+        if(options.title==='资料')return page++===0?'actions':'close';
         if(options.title==='资料操作')return 'import';
         assert.equal(options.title,'导入资料');field(options.body,'名称数组、角色卡 JSON 或资料备份').value='```json\n["甲","甲"]\n```';return 'import';
     };
     await f.lib.open();const data=await f.repo.getLibrary(f.project.id);assert.equal(data.items.length,3);assert.equal(new Set(data.items.map(x=>x.id)).size,3);assert.equal(f.called(),0);
+}));
+
+test('人物道具设定提示词分别保存，生成使用已修改的项目提示词',()=>fixture(async f=>{
+    let saved=false;
+    f.ui.dialog=async options=>{
+        assert.equal(options.title,'提示词');
+        if(saved)return 'close';
+        const type=field(options.body,'提示词类型');type.value='prop';type.onchange();
+        field(options.body,'相关提示词').value='道具自定义：{{name}}';saved=true;return 'save';
+    };
+    await f.lib.openPrompts();const data=await f.repo.getLibrary(f.project.id);assert.equal(data.prompts.prop,'道具自定义：{{name}}');assert.match(data.prompts.character,/人物/);assert.equal(f.called(),0);
+    data.items[0].type='prop';await f.repo.saveLibrary(f.project.id,data);
+    f.ui.dialog=async options=>{if(options.title==='资料'){walk(options.body).find(n=>n.textContent==='全选').onclick();return 'generate';}assert.equal(options.title,'生成所选资料');return 'plan';};
+    await f.lib.open();const run=f.planned();assert.match((await f.repo.getChunk(run.id,run.chunks[0].id)).instructions,/道具自定义：a/);assert.equal(f.called(),0);
+}));
+
+test('单个对象可查看并保存自己的提示词，不覆盖项目模板或资料内容',()=>fixture(async f=>{
+    let step=0;
+    f.ui.dialog=async options=>{
+        assert.match(options.title,/a · 提示词/);
+        assert.match(field(options.body,'本次对象要求').value,/输出主名称/);
+        if(step++)return 'close';
+        const prompt=field(options.body,'相关提示词');prompt.value='只生成 {{name}} 的资料';prompt.oninput();return 'save';
+    };
+    await f.lib.openPrompts({record:f.item,inline:true});const item=(await f.repo.getLibrary(f.project.id)).items[0];assert.equal(item.prompt,'只生成 {{name}} 的资料');assert.equal(item.content,'原资料');assert.equal(f.called(),0);
 }));

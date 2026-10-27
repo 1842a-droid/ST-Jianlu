@@ -107,6 +107,15 @@ function logo() {
     return svg;
 }
 
+function navigationIcon(kind) {
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('fill','none');svg.setAttribute('aria-hidden','true');svg.classList.add('jl-nav-symbol');
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d',({projects:'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',tasks:'M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01',library:'M4 4h13v16H4zM8 8h6M8 12h6M20 7v14H7',prompts:'M5 4h14v16H5zM9 8h6M9 12h6M9 16h3'})[kind]);
+    for(const[key,value]of Object.entries({stroke:'currentColor','stroke-width':'1.5','stroke-linecap':'round','stroke-linejoin':'round'}))path.setAttribute(key,value);
+    svg.append(path);return svg;
+}
+
 /** A self-contained view. All persistence and host actions are supplied by the controller. */
 export function createUI({ onAction = () => {} } = {}) {
     let host;
@@ -114,6 +123,13 @@ export function createUI({ onAction = () => {} } = {}) {
     let root;
     let frame;
     let content;
+    let chrome;
+    let navigation;
+    let pageHost;
+    let pageEntry = null;
+    let pageWork = null;
+    let currentPage = 'tasks';
+    let mobilePanel = 'chunks';
     let overlay;
     let toast;
     let state = {};
@@ -190,8 +206,13 @@ export function createUI({ onAction = () => {} } = {}) {
         frame.setAttribute('aria-modal', 'true');
         frame.setAttribute('aria-label', '笺录小说工作台');
         frame.tabIndex = -1;
-        content = node('div', 'jl-content');
-        frame.append(content);
+        chrome = node('div', 'jl-chrome');
+        navigation = node('nav', 'jl-navigation');
+        navigation.setAttribute('aria-label','工作台导航');
+        content = node('main', 'jl-content');
+        pageHost = node('main', 'jl-page-host');
+        pageHost.hidden = true;
+        frame.append(chrome,navigation,content,pageHost);
         overlay = node('div', 'jl-overlays');
         toast = node('div', 'jl-toast');
         toast.setAttribute('role', 'status');
@@ -210,7 +231,8 @@ export function createUI({ onAction = () => {} } = {}) {
     }
 
     function topSurface() {
-        return dialogs.at(-1)?.surface || chunkView?.surface || frame;
+        const modal=[...dialogs].reverse().find(entry=>entry!==pageEntry);
+        return modal?.surface || (!chunkView?.inline&&chunkView?.surface) || frame;
     }
 
     function focusSurface(surface) {
@@ -272,14 +294,58 @@ export function createUI({ onAction = () => {} } = {}) {
         if (returnFocus?.isConnected) returnFocus.focus();
     }
 
+    async function navigate(page) {
+        const previous = pageWork;
+        pageEntry?.finish(null);
+        if (previous) await previous;
+        if (!visible) return;
+        currentPage = page;
+        if (page === 'projects') { await act('backProjects'); render(state); return; }
+        if (page === 'tasks') { render(state); return; }
+        const work = act(page === 'prompts' ? 'libraryPrompts' : 'library');
+        pageWork = work;
+        await work;
+        if (pageWork === work) { pageWork = null; currentPage = 'tasks'; render(state); }
+    }
+
+    async function showSettings() {
+        const previous=pageWork;
+        const back=currentPage;
+        pageEntry?.finish(null);
+        if(previous)await previous;
+        await act('settings');
+        if(visible&&state.project&&['library','prompts'].includes(back))void navigate(back);
+    }
+
+    async function refreshCurrent() {
+        const back=currentPage, previous=pageWork;
+        pageEntry?.finish(null);if(previous)await previous;
+        await act('refresh');
+        if(visible&&state.project&&['library','prompts'].includes(back))void navigate(back);
+    }
+
+    function renderNavigation() {
+        navigation.replaceChildren();
+        const selected = !state.project ? 'projects' : currentPage;
+        for (const [id,label,mark] of [['projects','项目','▦'],['tasks','任务','≡'],['library','资料','◇'],['prompts','提示词','⌘']]) {
+            const item = button('',()=>{void navigate(id);},`jl-nav-item ${id===selected?'jl-nav-active':''}`,label);
+            item.append(navigationIcon(id),node('span','jl-nav-label',label));
+            if(id===selected)item.setAttribute('aria-current','page');
+            item.disabled = id!=='projects'&&!state.project;
+            navigation.append(item);
+        }
+    }
+
     function render(nextState = {}) {
         state = nextState;
+        if(state.project&&currentPage==='projects')currentPage='tasks';
         if (!root || !visible) return;
         const scroller = content.querySelector('.jl-scroll');
         const scrollTop = scroller?.scrollTop || 0;
         const previousProject = content.dataset.project || '';
         const focused = activeElement();
         const focusKey = content.contains(focused) ? focused.dataset.focusKey : null;
+        const inlineView=chunkView?.inline&&chunkView.runId===state.run?.id?chunkView:null;
         root.dataset.theme = THEMES.some(([id])=>id===state.settings?.theme) ? state.settings.theme : 'host';
         root.style.setProperty('--jl-font-size', `${Math.max(12, Math.min(16, Number(state.settings?.fontSize) || 13))}px`);
         content.replaceChildren();
@@ -293,10 +359,12 @@ export function createUI({ onAction = () => {} } = {}) {
             title.title = state.project.title || '';
             header.append(title);
         } else header.append(node('span', 'jl-header-space'));
-        const refresh = iconButton('↻', '刷新项目和当前配置', () => { void act('refresh'); });
-        refresh.disabled = Boolean(state.busy);
-        header.append(refresh, iconButton('⚙', '设置', () => { void act('settings'); }), iconButton('×', '关闭工作台', close));
-        content.append(header);
+        const refresh = iconButton('↻', '刷新项目和当前配置', () => { void refreshCurrent(); });
+        refresh.disabled = Boolean(state.busy)&&!pageEntry;
+        header.append(refresh, iconButton('⚙', '设置', () => { void showSettings(); }), iconButton('×', '关闭工作台', close));
+        chrome.replaceChildren(header);
+        renderNavigation();
+        content.hidden = Boolean(pageEntry);
         if (state.notice) {
             const notice = node('div', 'jl-notice', state.notice);
             notice.setAttribute('role', 'status');
@@ -304,6 +372,7 @@ export function createUI({ onAction = () => {} } = {}) {
         }
         if (state.project) renderProject();
         else renderProjects();
+        if(inlineView){content.querySelector('.jl-live')?.replaceChildren(inlineView.layer);if(inlineView.surface.contains(focused))focused.focus({preventScroll:true});}
         if (previousProject === (state.project?.id || '')) {
             const nextScroller = content.querySelector('.jl-scroll');
             if (nextScroller) nextScroller.scrollTop = scrollTop;
@@ -382,7 +451,7 @@ export function createUI({ onAction = () => {} } = {}) {
         const chunks=state.run?.chunks||[];
         const numeric=node('span','jl-count',`${chunks.filter(x=>x.status==='done').length} / ${chunks.length}`);
         numeric.setAttribute('aria-label','完成块数');
-        runActions.append(button('人物 / 道具',()=>{void act('library');},'jl-quiet'),newRun,numeric,taskActions);
+        runActions.append(newRun,numeric,taskActions);
         runBar.append(picker, runActions);
         content.append(runBar);
         if (!state.run) {
@@ -392,12 +461,24 @@ export function createUI({ onAction = () => {} } = {}) {
             return;
         }
 
+        const switcher = node('div','jl-task-panels');
+        for(const [id,label] of [['chunks','分块'],['output','输出']]){
+            const tab=button(label,()=>{mobilePanel=id;render(state);},mobilePanel===id?'jl-filter-active':'jl-quiet');
+            tab.setAttribute('aria-pressed',String(mobilePanel===id));switcher.append(tab);
+        }
+        content.append(switcher);
+        const layout=node('div','jl-job-layout');layout.dataset.mobilePanel=mobilePanel;
+        const blocks=node('section','jl-blocks-panel');
         const live=state.active?.runId===state.run.id?state.active:null;
         const recent=lastLive?.runId===state.run.id?lastLive:null;
-        const liveBox=node('details','jl-live');
-        const liveTitle=node('summary','','输出预览');
-        const liveText=node('textarea','jl-textarea jl-live-text');liveText.readOnly=true;liveText.setAttribute('aria-label','流式输出预览');liveText.value=live?.output||recent?.text||'';
-        liveBox.append(liveTitle,liveText);liveBox.open=Boolean(live||recent);content.append(liveBox);
+        const liveBox=node('section','jl-live');
+        const liveHead=node('header','jl-preview-heading');
+        liveHead.append(node('h2','','输出预览'),node('span','jl-preview-count',`${(live?.output||recent?.text||'').length.toLocaleString()} 字`));
+        const copy=button('复制',()=>{copyText(liveText.value).then(()=>announce('已复制')).catch(error=>announce(error.message));},'jl-quiet');
+        liveHead.append(copy);
+        const liveText=node('textarea','jl-textarea jl-live-text');
+        liveText.readOnly=true;liveText.spellcheck=false;liveText.setAttribute('aria-label','流式输出预览');liveText.value=live?.output||recent?.text||'';
+        liveBox.append(liveHead,liveText);
         const filters = node('div', 'jl-toolbar jl-filter-toolbar');
         const tabs = node('div', 'jl-filter-tabs');
         tabs.setAttribute('role', 'group');
@@ -416,7 +497,7 @@ export function createUI({ onAction = () => {} } = {}) {
         selectionCount.setAttribute('aria-live', 'polite');
         filters.append(selectionCount);
         const bulkDelete=button('删除所选',()=>{void act('deleteChunks',{ids:[...selected]});},'jl-danger');bulkDelete.disabled=!selected.size||state.active?.runId===state.run.id;filters.append(bulkDelete);
-        content.append(filters);
+        blocks.append(filters);
 
         const filtered = filteredChunks(chunks, state.filter);
         const pageSize = Math.max(1, Number(state.pageSize) || 30);
@@ -429,6 +510,7 @@ export function createUI({ onAction = () => {} } = {}) {
             row.setAttribute('role', 'listitem');
             row.dataset.status = chunk.status || 'pending';
             row.dataset.selected = String(selected.has(chunk.id));
+            row.dataset.open = String(chunkView?.chunkId===chunk.id);
             const label = node('label', 'jl-check-label');
             const checkbox = node('input');
             checkbox.type = 'checkbox';
@@ -456,7 +538,7 @@ export function createUI({ onAction = () => {} } = {}) {
             list.append(row);
         }
         if (!filtered.length) list.append(node('div', 'jl-empty', '没有符合条件的文本块'));
-        content.append(list);
+        blocks.append(list);
         if (pageCount > 1) {
             const pagination = node('div', 'jl-pagination');
             const previous = button('‹', () => { void act('page', { value: page - 1 }); }, 'jl-icon-button', '上一页');
@@ -464,19 +546,22 @@ export function createUI({ onAction = () => {} } = {}) {
             const next = button('›', () => { void act('page', { value: page + 1 }); }, 'jl-icon-button', '下一页');
             next.disabled = page === pageCount - 1;
             pagination.append(previous, node('span', 'jl-muted', `${page + 1} / ${pageCount}`), next);
-            content.append(pagination);
+            blocks.append(pagination);
         }
+        layout.append(blocks,liveBox);content.append(layout);
     }
 
-    function dialog({ title = '', body, buttons = [{ label: '完成', value: true, primary: true }], layout = 'default' } = {}) {
+    function dialog({ title = '', body, buttons = [{ label: '完成', value: true, primary: true }], layout = 'default', page = 'library' } = {}) {
         mount();
         if (!visible) open();
-        const layer = node('div', 'jl-modal-layer');
+        const isPage = layout === 'page';
+        const layer = node('div', isPage ? 'jl-page-layer' : 'jl-modal-layer');
         const surface = node('section', 'jl-dialog');
+        if(isPage)surface.classList.add('jl-page-surface');
         if (layout === 'menu') surface.classList.add('jl-dialog-menu');
         if (layout === 'wide') surface.classList.add('jl-dialog-wide');
-        surface.setAttribute('role', 'dialog');
-        surface.setAttribute('aria-modal', 'true');
+        surface.setAttribute('role', isPage ? 'region' : 'dialog');
+        if(!isPage)surface.setAttribute('aria-modal', 'true');
         surface.setAttribute('aria-label', title || '操作');
         surface.tabIndex = -1;
         const header = node('header', 'jl-sheet-header');
@@ -489,6 +574,7 @@ export function createUI({ onAction = () => {} } = {}) {
                 if (index < 0) return;
                 dialogs.splice(index, 1);
                 layer.remove();
+                if(pageEntry?.surface===surface){pageEntry=null;pageHost.hidden=true;content.hidden=false;}
                 if (visible) {
                     if (previousFocus?.isConnected) previousFocus.focus();
                     else focusSurface(topSurface());
@@ -496,7 +582,7 @@ export function createUI({ onAction = () => {} } = {}) {
                 resolve(value);
             };
         });
-        header.append(iconButton('×', '关闭对话框', () => finish(null)));
+        if(!isPage)header.append(iconButton('×', '关闭对话框', () => finish(null)));
         const bodyContainer = node('div', 'jl-dialog-body');
         if (body?.nodeType) bodyContainer.append(body);
         else if (body !== undefined) bodyContainer.textContent = String(body);
@@ -506,11 +592,14 @@ export function createUI({ onAction = () => {} } = {}) {
             choice.disabled = Boolean(specification.disabled);
             footer.append(choice);
         }
-        surface.append(header, bodyContainer, footer);
+        if(isPage)surface.append(header,footer,bodyContainer);
+        else surface.append(header, bodyContainer, footer);
         layer.append(surface);
         layer.addEventListener('click', event => { if (event.target === layer) finish(null); });
-        overlay.append(layer);
-        dialogs.push({ surface, finish });
+        const entry={ surface, finish };
+        if(isPage){pageEntry=entry;currentPage=page;pageHost.replaceChildren(layer);pageHost.hidden=false;content.hidden=true;render(state);}
+        else overlay.append(layer);
+        dialogs.push(entry);
         focusSurface(surface);
         return promise;
     }
@@ -524,8 +613,10 @@ export function createUI({ onAction = () => {} } = {}) {
         const previousFocus = activeElement();
         const layer = node('div', 'jl-sheet-layer');
         const surface = node('section', 'jl-sheet');
+        const inline=window.innerWidth>950&&Boolean(content.querySelector('.jl-live'));
+        if(inline){layer.className='jl-inline-sheet-layer';surface.classList.add('jl-inline-sheet');}
         surface.setAttribute('role', 'dialog');
-        surface.setAttribute('aria-modal', 'true');
+        if(!inline)surface.setAttribute('aria-modal', 'true');else surface.setAttribute('role','region');
         surface.setAttribute('aria-label', chunk.label || '文本块详情');
         surface.tabIndex = -1;
         const header = node('header', 'jl-sheet-header');
@@ -533,12 +624,14 @@ export function createUI({ onAction = () => {} } = {}) {
         heading.append(node('h2', '', `${String(Number(chunk.index) + 1).padStart(2, '0')} · ${chunk.label || '文本块'}`), node('span', 'jl-muted', `${formatNumber(Number(chunk.start) + 1)}–${formatNumber(chunk.end)} 字`));
         const view = {
             surface,
+            inline,layer,
             runId:chunk.runId,chunkId:chunk.id,
             stream(text){if(!dirty){const near=output.scrollTop+output.clientHeight>=output.scrollHeight-40;output.value=text;output.readOnly=true;if(near)output.scrollTop=output.scrollHeight;}},
             close(restoreFocus = true) {
                 if (chunkView !== view) return;
                 layer.remove();
                 chunkView = null;
+                if(inline&&restoreFocus)render(state);
                 if (restoreFocus && visible) {
                     if (previousFocus?.isConnected) previousFocus.focus();
                     else focusSurface(frame);
@@ -633,12 +726,20 @@ export function createUI({ onAction = () => {} } = {}) {
         rerun.disabled = Boolean(state.active);
         const remove = button('删除此块', () => { void act('deleteChunks', { ids: [currentChunk.id] }); }, 'jl-danger');
         remove.disabled = Boolean(state.active);
-        footer.append(copy, exportButton,button('保存到资料',()=>{void act('saveToLibrary',{id:currentChunk.id,output:output.value});}),button('写入酒馆',()=>{void act('publishOutput',{id:currentChunk.id,output:output.value});}),retry, rerun, remove, node('span', 'jl-grow'), save);
+        const write=button('写入酒馆',()=>{void act('publishOutput',{id:currentChunk.id,output:output.value});});
+        const more=button('更多',async()=>{
+            const value=await dialog({title:'分块操作',layout:'menu',buttons:[{label:'导出',value:'export'},{label:'保存到资料',value:'library'},{label:'重试',value:'retry',disabled:retry.disabled},{label:'按当前预设重跑',value:'rerun',disabled:rerun.disabled},{label:'删除此块',value:'delete',danger:true,disabled:remove.disabled},{label:'返回',value:'close'}]});
+            if(value==='export')exportButton.click();
+            if(value==='library')void act('saveToLibrary',{id:currentChunk.id,output:output.value});
+            if(value==='retry')retry.click();if(value==='rerun')rerun.click();if(value==='delete')remove.click();
+        });
+        footer.append(copy,write,more,node('span','jl-grow'),save);
         surface.append(header, tabs, body, footer);
         layer.append(surface);
         layer.addEventListener('click', event => { if (event.target === layer) view.close(); });
-        overlay.append(layer);
+        if(inline)content.querySelector('.jl-live').replaceChildren(layer);else overlay.append(layer);
         chunkView = view;
+        for(const row of content.querySelectorAll('.jl-chunk-row'))row.dataset.open=String(row.querySelector(`[data-focus-key="chunk-${chunk.id}"]`)!==null);
         focusSurface(surface);
         return view;
     }
@@ -658,8 +759,13 @@ export function createUI({ onAction = () => {} } = {}) {
 
     function updateStream(event){
         lastLive=event;
-        if(state.run?.id===event.runId){const field=content?.querySelector('.jl-live-text');const details=content?.querySelector('.jl-live');if(field){const near=field.scrollTop+field.clientHeight>=field.scrollHeight-40;field.value=event.text;if(near)field.scrollTop=field.scrollHeight;details.open=true;details.querySelector('summary').textContent=`输出预览 · ${event.text.length.toLocaleString()} 字`;}}
+        if(state.run?.id===event.runId){
+            const field=content?.querySelector('.jl-live-text');
+            if(field){const near=field.scrollTop+field.clientHeight>=field.scrollHeight-40;field.value=event.text;if(near)field.scrollTop=field.scrollHeight;}
+            const count=content?.querySelector('.jl-preview-count');if(count)count.textContent=`${event.text.length.toLocaleString()} 字`;
+        }
         if(chunkView?.runId===event.runId&&chunkView.chunkId===event.chunkId)chunkView.stream(event.text);
     }
+
     return { mount, open, close, render, dialog, showChunk, updateStream,notify: announce, destroy };
 }

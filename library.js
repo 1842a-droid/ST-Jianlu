@@ -1,19 +1,32 @@
 import { newId } from './store.js';
 export const terms = value => [...new Set((Array.isArray(value) ? value : String(value || '').split(/[\n,，、;；]+/)).map(x => String(x).trim()).filter(Boolean))];
+export const PROMPT_TYPES = [['character','人物'],['prop','道具'],['setting','设定'],['check','自检'],['scan','名称扫描']];
+const objectPrompt = kind => `只为「{{name}}」生成${kind}资料，使用该输出主名称。检索词用于寻找材料，不代表它们是同一对象。其他对象（包括人物、族群、组织、道具）的经历和属性不得归给主对象；不能确认的信息标为未确认，不编造。\n限定阶段：{{stage}}\n补充要求：{{notes}}`;
+export const DEFAULT_PROMPTS = Object.freeze({
+    character: objectPrompt('人物'), prop: objectPrompt('道具'), setting: objectPrompt('设定'),
+    check: '核对、纠错并补充「{{name}}」的以下资料。只根据本次提供的扫描材料，不混淆关联对象。\n【待检查资料】\n{{existing}}',
+    scan: '从当前小说片段列出明确出现的人物、道具、设定。只输出 JSON 数组，每项如 {"name":"原文名称","type":"character","aliases":[],"contextTerms":[]}。type 只选 character、prop、setting 之一。别名必须确指同一主体，族群和道具不作为人物别名。',
+});
+export const promptFor = (prompts, type) => String(prompts?.[type] ?? DEFAULT_PROMPTS[type] ?? '');
+export function renderEntityPrompt(template, entity) {
+    const values = { name:entity.outputName, search_name:entity.name, aliases:terms(entity.aliases).join('、'), context_terms:terms(entity.contextTerms).join('、'), stage:entity.stage||'不限', notes:entity.notes||'无', existing:entity.content||'' };
+    return String(template).replace(/\{\{\s*(name|search_name|aliases|context_terms|stage|notes|existing)\s*\}\}/g, (_,key) => values[key]);
+}
 export function normalizeEntity(value = {}) {
     const name = String(value.name || '').trim();
     if (!name) throw new Error('请填写检索名称');
-    return { ...value, id: value.id || newId(), type: ['character', 'prop', 'setting'].includes(value.type) ? value.type : 'character', name, outputName: String(value.outputName || name).trim() || name, aliases: terms(value.aliases), searchTerms: terms(value.searchTerms), contextTerms: terms(value.contextTerms), notes: String(value.notes || ''), content: String(value.content || ''), stage: String(value.stage || '') };
+    return { ...value, id: value.id || newId(), type: ['character', 'prop', 'setting'].includes(value.type) ? value.type : 'character', name, outputName: String(value.outputName || name).trim() || name, aliases: terms(value.aliases), searchTerms: terms(value.searchTerms), contextTerms: terms(value.contextTerms), notes: String(value.notes || ''), prompt: String(value.prompt || ''), content: String(value.content || ''), stage: String(value.stage || '') };
 }
 export function mergeEntities(records, primaryId, asAliases = false) {
     const primary = normalizeEntity(records.find(x => x.id === primaryId));
     const extra = records.filter(x => x.id !== primaryId);
     return normalizeEntity({ ...primary, aliases: [...primary.aliases, ...(asAliases ? extra.flatMap(x => [x.name, ...(x.aliases || [])]) : [])], contextTerms: [...primary.contextTerms, ...extra.flatMap(x => [...(x.contextTerms || []), ...(asAliases ? [] : [x.name, ...(x.aliases || [])])])], content: [primary.content, ...extra.map(x => x.content)].filter(Boolean).join('\n\n') });
 }
-export function entityInstructions(entity, { format = '', check = false } = {}) {
+export function entityInstructions(entity, { format = '', check = false, prompts = {} } = {}) {
     const e = normalizeEntity(entity);
-    return `【本次${check ? '检查' : '生成'}对象】\n${JSON.stringify({对象类型:e.type === 'character' ? '人物' : e.type === 'prop' ? '道具' : '设定',输出主名称:e.outputName,原文检索名称:e.name,真正的同人别名:e.aliases,附加检索词:e.searchTerms,关联背景_不是同人别名:e.contextTerms,限定阶段:e.stage,补充要求:e.notes}, null, 2)}\n` +
-        `只为「${e.outputName}」${check ? '核对、纠错并补充所给资料' : '生成资料'}，使用该输出主名称。检索词用于找材料，不代表这些词是同一个人。族群、道具、组织、其他人物的经历和属性不得归给主对象；不能确认的信息标为未确认，不编造。${e.stage ? '只写指定阶段，不混入其他阶段的状态与经历。' : ''}\n${format ? `【本次输出格式】\n${format}` : '输出格式沿用当前酒馆预设。'}${check ? `\n【待检查资料】\n${e.content}` : ''}`;
+    const template = e.prompt?.trim() ? e.prompt : promptFor(prompts, e.type);
+    return `【本次${check ? '检查' : '生成'}对象】\n${JSON.stringify({对象类型:e.type === 'character' ? '人物' : e.type === 'prop' ? '道具' : '设定',输出主名称:e.outputName,原文检索名称:e.name,同一对象别名:e.aliases,附加检索词:e.searchTerms,关联背景_不是同一对象别名:e.contextTerms,限定阶段:e.stage,补充要求:e.notes}, null, 2)}\n` +
+        renderEntityPrompt(template,e) + (check ? '\n\n' + renderEntityPrompt(promptFor(prompts,'check'),e) : '') + '\n\n' + (format ? `【本次输出格式】\n${format}` : '输出格式沿用当前酒馆预设。');
 }
 export function collectContext(text, values, { radius = 700, maxChars = 60000 } = {}) {
     const keys = terms(values); if (!keys.length) throw new Error('请填写检索名称或检索词');

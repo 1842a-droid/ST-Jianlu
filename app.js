@@ -489,7 +489,7 @@ export function createController({ repo, host, queue, ui, context = () => global
 
     async function handle(type, data = {}) {
         if (destroyed) return;
-        const exclusive = new Set(['newProject', 'importBackup', 'openProject', 'source', 'renameProject', 'deleteProject', 'exportBackup', 'newRun', 'selectRun', 'openChunk', 'saveChunk', 'mergeExport', 'settings', 'apiSettings', 'taskActions', 'deleteChunks','library','saveToLibrary','publishOutput']);
+        const exclusive = new Set(['newProject', 'importBackup', 'openProject', 'source', 'renameProject', 'deleteProject', 'exportBackup', 'newRun', 'selectRun', 'openChunk', 'saveChunk', 'mergeExport', 'settings', 'apiSettings', 'taskActions', 'deleteChunks','library','libraryPrompts','saveToLibrary','publishOutput']);
         const lock = exclusive.has(type);
         if (lock && state.busy) return;
         if (lock) { state.busy = true; draw(); }
@@ -501,6 +501,7 @@ export function createController({ repo, host, queue, ui, context = () => global
             if (type === 'taskActions') return await taskActions();
             if (type === 'deleteChunks') return await deleteChunks(data.ids);
             if (type === 'library') return await library.open();
+            if (type === 'libraryPrompts') return await library.openPrompts();
             if (type === 'saveToLibrary'||type==='publishOutput') {
                 const chunk=await repo.getChunk(state.run.id,data.id);
                 const value={text:data.output??chunk.output,name:chunk.outputName||chunk.label,entityId:chunk.entityId};

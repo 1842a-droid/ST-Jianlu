@@ -1,315 +1,247 @@
+:host { all: initial; }
 #jianlu-root {
     all: initial;
-    --jl-bg: var(--SmartThemeBlurTintColor, #232829);
-    --jl-surface: var(--SmartThemeChatTintColor, #2a3030);
-    --jl-text: var(--SmartThemeBodyColor, #e7ece8);
-    --jl-muted: color-mix(in srgb, var(--jl-text) 58%, transparent);
-    --jl-line: color-mix(in srgb, var(--jl-text) 13%, transparent);
-    --jl-soft: color-mix(in srgb, var(--jl-text) 5%, transparent);
-    --jl-accent: #88a996;
-    --jl-accent-text: #15261d;
-    --jl-danger: #d89592;
-    --jl-warning: #d3b77a;
-    --jl-font-size: 13px;
-    --jl-underlay: #202622;
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    display: grid;
-    place-items: center;
-    color: var(--jl-text);
-    font: 400 var(--jl-font-size)/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
-    text-shadow: none;
-    isolation: isolate;
-    color-scheme: normal;
-    touch-action: auto;
-    -webkit-text-fill-color: currentColor;
+    --jl-bg: var(--SmartThemeBlurTintColor,#22282b);
+    --jl-surface: var(--SmartThemeChatTintColor,#2b3235);
+    --jl-text: var(--SmartThemeBodyColor,#e8ecec);
+    --jl-underlay:#22282b;
+    --jl-accent:#86b5ad; --jl-accent-text:#172e2a;
+    --jl-muted:color-mix(in srgb,var(--jl-text) 68%,transparent);
+    --jl-line:color-mix(in srgb,var(--jl-text) 13%,transparent);
+    --jl-soft:color-mix(in srgb,var(--jl-text) 5%,transparent);
+    --jl-danger:#cf7777; --jl-warning:#bb8a42; --jl-font-size:13px;
+    position:absolute;inset:0;width:100%;height:100%;overflow:hidden;
+    display:grid;place-items:center;color:var(--jl-text);isolation:isolate;
+    font:400 var(--jl-font-size)/1.6 'MiSans','HarmonyOS Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;-webkit-text-fill-color:currentColor;
 }
-
-#jianlu-root[data-theme="light"] {
-    --jl-bg: #f6f7f3;
-    --jl-surface: #ffffff;
-    --jl-text: #28352f;
-    --jl-accent: #526e5d;
-    --jl-accent-text: #ffffff;
-    --jl-danger: #a94a48;
-    --jl-warning: #8b6e2e;
-    --jl-underlay: #f6f7f3;
-    color-scheme: light;
-}
-
-#jianlu-root[data-theme="dark"] {
-    --jl-bg: #1c2220;
-    --jl-surface: #242c28;
-    --jl-text: #e2e9e3;
-    --jl-accent: #91b59e;
-    --jl-accent-text: #14221a;
-    --jl-danger: #df9994;
-    --jl-warning: #d5b97d;
-    --jl-underlay: #1c2220;
-    color-scheme: dark;
-}
-
-#jianlu-root[hidden],
-#jianlu-root [hidden] { display: none !important; }
-
-#jianlu-root *,
-#jianlu-root *::before,
-#jianlu-root *::after { box-sizing: border-box; }
-
-#jianlu-root h1,
-#jianlu-root h2,
-#jianlu-root p { margin: 0; padding: 0; color: inherit; font-family: inherit; text-shadow: none; }
-
-#jianlu-root h1 { font-size: 14px; font-weight: 600; }
-#jianlu-root h2 { font-size: 14px; font-weight: 600; }
-#jianlu-root .jl-backdrop { position: absolute; inset: 0; background: rgb(0 0 0 / 45%); }
-
-#jianlu-root .jl-frame {
-    position: relative;
-    width: min(1040px, calc(100vw - 44px));
-    height: min(860px, 82vh, calc(var(--jl-viewport-height, 100dvh) - 48px));
-    max-height: 100%;
-    min-height: 0;
-    overflow: hidden;
-    background: linear-gradient(var(--jl-bg), var(--jl-bg)), var(--jl-underlay);
-    border: 1px solid var(--jl-line);
-    border-radius: 18px;
-    box-shadow: 0 24px 90px rgb(0 0 0 / 25%);
-    outline: none;
-}
-
-#jianlu-root .jl-content { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: auto; overscroll-behavior: contain; touch-action: pan-y pinch-zoom; }
-#jianlu-root .jl-header { display: flex; align-items: center; flex: 0 0 auto; gap: 14px; min-height: 62px; padding: 10px 18px; border-bottom: 1px solid var(--jl-line); }
-#jianlu-root .jl-brand { display: flex; align-items: center; gap: 9px; flex-shrink: 0; font-size: 15px; font-weight: 650; letter-spacing: .05em; }
-#jianlu-root .jl-logo { width: 28px; height: 28px; color: var(--jl-accent); }
-#jianlu-root .jl-header-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; min-width: 0; border-left: 1px solid var(--jl-line); padding-left: 16px; }
-#jianlu-root .jl-header-space, #jianlu-root .jl-grow { flex: 1; }
-#jianlu-root .jl-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 18px; flex: 0 0 auto; min-width: 0; }
-#jianlu-root .jl-project-toolbar { padding-top: 20px; padding-bottom: 18px; }
-#jianlu-root .jl-section-title { font-size: 14px; white-space: nowrap; }
-#jianlu-root .jl-muted { color: var(--jl-muted); font-size: 12px; }
-
-#jianlu-root button,
-#jianlu-root input,
-#jianlu-root textarea,
-#jianlu-root select {
-    font: inherit;
-    color: inherit;
-    text-shadow: none;
-    box-shadow: none;
-    letter-spacing: normal;
-    max-width: 100%;
-    -webkit-text-fill-color: currentColor;
-}
-
-#jianlu-root .jl-button,
-#jianlu-root .jl-dialog-body button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    min-height: 36px;
-    padding: 7px 12px;
-    border: 1px solid var(--jl-line);
-    border-radius: 9px;
-    margin: 0;
-    background: transparent;
-    color: var(--jl-text);
-    font-size: 12px;
-    font-weight: 500;
-    line-height: 1.4;
-    cursor: pointer;
-    text-decoration: none;
-    white-space: nowrap;
-    user-select: none;
-    -webkit-tap-highlight-color: transparent;
-    appearance: none;
-    -webkit-appearance: none;
-    touch-action: manipulation;
-}
-
-#jianlu-root .jl-button:hover,
-#jianlu-root .jl-dialog-body button:hover { background: var(--jl-soft); }
-#jianlu-root .jl-button:disabled { opacity: .38; cursor: default; }
-#jianlu-root .jl-button:disabled:hover { background: transparent; }
-#jianlu-root .jl-button:focus-visible,
-#jianlu-root input:focus-visible,
-#jianlu-root textarea:focus-visible,
-#jianlu-root select:focus-visible { outline: 2px solid var(--jl-accent); outline-offset: 2px; }
-#jianlu-root .jl-primary { background: var(--jl-accent); color: var(--jl-accent-text); border-color: transparent; }
-#jianlu-root .jl-primary:hover { background: color-mix(in srgb, var(--jl-accent) 90%, var(--jl-text)); }
-#jianlu-root .jl-primary:disabled:hover { background: var(--jl-accent); }
-#jianlu-root .jl-quiet { border-color: transparent; color: var(--jl-muted); }
-#jianlu-root .jl-danger { color: var(--jl-danger); }
-#jianlu-root .jl-icon-button { padding: 5px; width: 36px; min-width: 36px; border-color: transparent; font-size: 21px; line-height: 1; }
-#jianlu-root .jl-scroll { flex: 1 1 auto; min-height: 100px; overflow: auto; overscroll-behavior: contain; touch-action: pan-y pinch-zoom; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--jl-line) transparent; }
-#jianlu-root .jl-project-grid { display: grid; align-content: start; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 14px; padding: 0 18px 20px; }
-#jianlu-root .jl-project-card { display: grid; grid-template-columns: 40px minmax(0, 1fr); grid-template-rows: auto auto auto; gap: 5px 11px; justify-content: stretch; padding: 17px; min-height: 126px; white-space: normal; text-align: left; border-radius: 14px; background: var(--jl-surface); }
-#jianlu-root .jl-project-card:hover { border-color: color-mix(in srgb, var(--jl-accent) 60%, var(--jl-line)); background: var(--jl-surface); }
-#jianlu-root .jl-project-symbol { grid-row: 1 / 3; display: grid; place-items: center; width: 36px; height: 44px; background: color-mix(in srgb, var(--jl-accent) 12%, transparent); color: var(--jl-accent); border-radius: 7px; font-size: 15px; }
-#jianlu-root .jl-project-name { font-size: 14px; font-weight: 600; align-self: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#jianlu-root .jl-project-source { color: var(--jl-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#jianlu-root .jl-project-meta { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 12px; color: var(--jl-muted); font-size: 11px; margin-top: 9px; }
-#jianlu-root .jl-empty { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--jl-muted); padding: 40px 20px; min-height: 240px; }
-#jianlu-root .jl-empty-mark { display: grid; place-items: center; font-size: 25px; font-weight: 300; color: var(--jl-accent); width: 60px; height: 70px; border: 1px solid var(--jl-line); border-radius: 10px; }
-#jianlu-root .jl-project-nav { padding-top: 8px; padding-bottom: 0; }
-#jianlu-root .jl-source-button { max-width: 45%; overflow: hidden; text-overflow: ellipsis; justify-content: flex-start; border-color: transparent; font-size: 12px; }
-#jianlu-root .jl-word-count { white-space: nowrap; }
-#jianlu-root .jl-run-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; padding-top: 12px; padding-bottom: 12px; }
-#jianlu-root .jl-run-picker { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; }
-#jianlu-root .jl-run-label { color: var(--jl-muted); font-size: 11px; }
-#jianlu-root .jl-run-actions { display: flex; gap: 8px; align-items: center; }
-#jianlu-root select { appearance: auto; -webkit-appearance: menulist; min-height: 38px; border: 1px solid var(--jl-line); border-radius: 9px; background: linear-gradient(var(--jl-surface), var(--jl-surface)), var(--jl-underlay); color: var(--jl-text); padding: 7px 10px; margin: 0; width: auto; font-weight: 400; opacity: 1; text-transform: none; touch-action: manipulation; }
-#jianlu-root select option { color: var(--jl-text); background: var(--jl-underlay); font-weight: 400; }
-#jianlu-root select:disabled { opacity: .55; }
-#jianlu-root .jl-run-select { width: 100%; font-size: 12px; }
-#jianlu-root .jl-progress-row { display: flex; align-items: center; flex: 0 0 auto; gap: 10px; padding: 2px 18px 8px; }
-#jianlu-root .jl-progress { flex: 1; width: 100%; height: 4px; border: 0; border-radius: 10px; background: var(--jl-soft); appearance: none; overflow: hidden; }
-#jianlu-root .jl-progress::-webkit-progress-bar { background: var(--jl-soft); border-radius: 10px; }
-#jianlu-root .jl-progress::-webkit-progress-value { background: var(--jl-accent); border-radius: 10px; }
-#jianlu-root .jl-progress::-moz-progress-bar { background: var(--jl-accent); border-radius: 10px; }
-#jianlu-root .jl-progress-row > span { flex-shrink: 0; font-size: 11px; }
-#jianlu-root .jl-filter-toolbar { padding-top: 4px; padding-bottom: 8px; gap: 2px; flex-wrap: wrap; }
-#jianlu-root .jl-filter-tabs { display: flex; gap: 2px; }
-#jianlu-root .jl-filter-tabs .jl-button { min-width: 46px; padding: 6px 10px; border-color: transparent; }
-#jianlu-root .jl-filter-active { background: color-mix(in srgb, var(--jl-accent) 13%, transparent); color: var(--jl-accent); }
-#jianlu-root .jl-selected-count { font-size: 11px; color: var(--jl-accent); padding-left: 7px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-#jianlu-root .jl-chunk-list { padding: 0 18px 12px; }
-#jianlu-root .jl-chunk-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 32px; align-items: center; gap: 8px; min-height: 76px; border-bottom: 1px solid var(--jl-line); }
-#jianlu-root .jl-chunk-row:last-child { border-bottom: 0; }
-#jianlu-root .jl-chunk-row[data-selected="true"] { background: color-mix(in srgb, var(--jl-accent) 7%, transparent); }
-#jianlu-root .jl-check-label { display: flex; align-items: center; justify-content: center; width: 36px; height: 42px; cursor: pointer; margin: 0; }
-#jianlu-root input[type="checkbox"] { appearance: auto; -webkit-appearance: checkbox; accent-color: var(--jl-accent); width: 17px; height: 17px; min-width: 17px; min-height: 17px; margin: 0; padding: 0; border: initial; border-radius: initial; background: initial; box-shadow: none; filter: none; transform: none; cursor: pointer; flex-shrink: 0; }
-#jianlu-root input[type="checkbox"]::before, #jianlu-root input[type="checkbox"]::after { display: none; content: none; }
-#jianlu-root .jl-chunk-open { display: flex; align-items: stretch; flex-direction: column; min-width: 0; gap: 5px; border: 0; padding: 12px 0; text-align: left; background: transparent; }
-#jianlu-root .jl-chunk-open:hover { background: transparent; }
-#jianlu-root .jl-chunk-main { display: flex; gap: 12px; min-width: 0; }
-#jianlu-root .jl-chunk-number { color: var(--jl-muted); font-size: 11px; font-variant-numeric: tabular-nums; padding-top: 1px; }
-#jianlu-root .jl-chunk-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-#jianlu-root .jl-chunk-meta { display: flex; flex-wrap: nowrap; gap: 12px; color: var(--jl-muted); font-size: 11px; min-width: 0; }
-#jianlu-root .jl-chunk-meta > span { white-space: nowrap; }
-#jianlu-root .jl-chunk-error { color: var(--jl-danger); overflow: hidden; text-overflow: ellipsis; }
-#jianlu-root .jl-status { display: inline-flex; align-items: center; justify-content: center; padding: 3px 7px; border-radius: 6px; color: var(--jl-muted); background: var(--jl-soft); font-size: 11px; white-space: nowrap; }
-#jianlu-root .jl-status-done { color: var(--jl-accent); background: color-mix(in srgb, var(--jl-accent) 11%, transparent); }
-#jianlu-root .jl-status-running { color: var(--jl-accent); border: 1px solid color-mix(in srgb, var(--jl-accent) 35%, transparent); }
-#jianlu-root .jl-status-failed { color: var(--jl-danger); background: color-mix(in srgb, var(--jl-danger) 9%, transparent); }
-#jianlu-root .jl-status-partial { color: var(--jl-warning); background: color-mix(in srgb, var(--jl-warning) 9%, transparent); }
-#jianlu-root .jl-pagination { display: flex; align-items: center; justify-content: center; flex: 0 0 auto; gap: 16px; padding: 4px 18px max(8px, env(safe-area-inset-bottom)); border-top: 1px solid var(--jl-line); }
-#jianlu-root .jl-notice { flex: 0 0 auto; max-height: 80px; overflow: auto; padding: 9px 18px; background: color-mix(in srgb, var(--jl-warning) 8%, transparent); color: var(--jl-warning); border-bottom: 1px solid var(--jl-line); font-size: 12px; }
-#jianlu-root .jl-overlays { position: absolute; inset: 0; pointer-events: none; }
-#jianlu-root .jl-modal-layer,
-#jianlu-root .jl-sheet-layer { position: absolute; inset: 0; pointer-events: auto; background: rgb(0 0 0 / 35%); display: flex; align-items: center; justify-content: center; padding: 24px; }
-#jianlu-root .jl-sheet-layer { align-items: flex-end; }
-#jianlu-root .jl-dialog,
-#jianlu-root .jl-sheet { display: flex; flex-direction: column; width: min(560px, 100%); max-height: min(calc(var(--jl-viewport-height, 100dvh) - 48px), 900px); min-height: 0; border: 1px solid var(--jl-line); border-radius: 16px; overflow: hidden; background: linear-gradient(var(--jl-bg), var(--jl-bg)), var(--jl-underlay); box-shadow: 0 18px 70px rgb(0 0 0 / 25%); outline: 0; }
-#jianlu-root .jl-sheet { width: min(960px, 100%); height: min(calc(var(--jl-viewport-height, 100dvh) * .85), 820px); border-radius: 18px 18px 12px 12px; }
-#jianlu-root .jl-sheet-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--jl-line); flex-shrink: 0; }
-#jianlu-root .jl-sheet-heading { min-width: 0; }
-#jianlu-root .jl-sheet-heading h2 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-#jianlu-root .jl-sheet-heading .jl-muted { display: block; margin-top: 3px; font-size: 11px; }
-#jianlu-root .jl-dialog-body { padding: 18px; overflow: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-y pinch-zoom; -webkit-overflow-scrolling: touch; }
-#jianlu-root .jl-dialog-body p { line-height: 1.8; }
-#jianlu-root .jl-dialog-body form,
-#jianlu-root .jl-dialog-body .jl-form { display: flex; flex-direction: column; gap: 14px; }
-#jianlu-root .jl-dialog-body label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; color: var(--jl-muted); margin-bottom: 12px; }
-#jianlu-root .jl-dialog-body label:last-child { margin-bottom: 0; }
-#jianlu-root input:not([type="checkbox"]):not([type="radio"]),
-#jianlu-root .jl-textarea,
-#jianlu-root .jl-dialog-body textarea { display: block; width: 100%; min-height: 38px; padding: 9px 11px; margin: 0; border: 1px solid var(--jl-line); border-radius: 9px; background: var(--jl-surface); color: var(--jl-text); font-size: inherit; outline: none; }
-#jianlu-root .jl-dialog-body input[type="file"] { font-size: 12px; padding: 9px; }
-#jianlu-root .jl-dialog-body input[type="checkbox"] { display: inline-block; }
-#jianlu-root .jl-dialog-body textarea { resize: vertical; min-height: 160px; line-height: 1.7; }
-#jianlu-root .jl-dialog-body select { width: 100%; }
-#jianlu-root .jl-dialog-footer { display: flex; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--jl-line); }
-#jianlu-root .jl-dialog-menu { width: min(410px, 100%); }
-#jianlu-root .jl-dialog-menu .jl-dialog-body { flex: 0 0 auto; padding: 12px 16px 4px; color: var(--jl-muted); font-size: 12px; }
-#jianlu-root .jl-dialog-menu .jl-dialog-footer { flex: 1 1 auto; flex-direction: column; justify-content: flex-start; flex-wrap: nowrap; gap: 5px; min-height: 0; overflow: auto; overscroll-behavior: contain; touch-action: pan-y pinch-zoom; padding: 8px 12px 12px; border: 0; }
-#jianlu-root .jl-dialog-menu .jl-dialog-footer .jl-button { flex: 0 0 auto; width: 100%; min-height: 42px; justify-content: flex-start; padding: 10px 13px; }
-#jianlu-root .jl-settings-section { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--jl-line); }
-#jianlu-root .jl-settings-section:first-child { padding-top: 0; margin-top: 0; border-top: 0; }
-#jianlu-root .jl-settings-heading { color: var(--jl-muted); font-size: 11px; font-weight: 500; margin-bottom: 2px; }
-#jianlu-root .jl-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
-#jianlu-root .jl-settings-row > .jl-button { flex: 1; min-width: 0; justify-content: flex-start; }
-#jianlu-root .jl-settings-row > select { width: auto; min-width: 120px; }
-#jianlu-root .jl-settings-value { min-width: 0; overflow-wrap: anywhere; color: var(--jl-muted); font-size: 12px; }
-#jianlu-root .jl-sheet-tabs { display: flex; gap: 4px; padding: 8px 16px; flex-shrink: 0; overflow-x: auto; touch-action: pan-x pinch-zoom; border-bottom: 1px solid var(--jl-line); }
-#jianlu-root .jl-sheet-tabs .jl-button { border-color: transparent; }
-#jianlu-root .jl-tab-active { color: var(--jl-accent); background: color-mix(in srgb, var(--jl-accent) 12%, transparent); }
-#jianlu-root .jl-sheet-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 16px; }
-#jianlu-root .jl-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-#jianlu-root .jl-chunk-textarea { flex: 1; height: 100%; min-height: 0; resize: none; line-height: 1.8; font-size: 12px; padding: 14px; tab-size: 2; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; touch-action: pan-y pinch-zoom; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
-#jianlu-root .jl-chunk-textarea[readonly] { background: var(--jl-soft); }
-#jianlu-root .jl-sheet-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 16px max(14px, env(safe-area-inset-bottom)); border-top: 1px solid var(--jl-line); flex-shrink: 0; }
-#jianlu-root .jl-toast { position: absolute; bottom: max(26px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 20; border: 1px solid var(--jl-line); border-radius: 10px; padding: 11px 16px; max-width: min(90vw, 560px); white-space: pre-wrap; background: linear-gradient(var(--jl-surface), var(--jl-surface)), var(--jl-underlay); box-shadow: 0 8px 28px rgb(0 0 0 / 20%); font-size: 12px; pointer-events: none; }
-#jianlu-root .jl-copy-field { position: fixed; opacity: 0; left: -10000px; top: 0; }
-
-@media (max-width: 650px) {
-    #jianlu-root .jl-frame { width: calc(100% - 24px); height: min(82vh, calc(var(--jl-viewport-height, 100dvh) - 40px)); min-height: 0; border-radius: 16px; border: 1px solid var(--jl-line); }
-    #jianlu-root .jl-header { min-height: 56px; padding: max(9px, env(safe-area-inset-top)) 12px 9px; gap: 10px; }
-    #jianlu-root .jl-brand { font-size: 14px; gap: 6px; }
-    #jianlu-root .jl-logo { width: 24px; height: 24px; }
-    #jianlu-root .jl-header-title { padding-left: 10px; }
-    #jianlu-root .jl-toolbar { padding-left: 12px; padding-right: 12px; }
-    #jianlu-root .jl-project-grid { padding-left: 12px; padding-right: 12px; gap: 10px; grid-template-columns: 1fr; }
-    #jianlu-root .jl-project-card { min-height: 112px; padding: 15px; }
-    #jianlu-root .jl-source-button { max-width: 46%; padding-left: 4px; padding-right: 4px; }
-    #jianlu-root .jl-word-count { font-size: 11px; }
-    #jianlu-root .jl-run-toolbar { grid-template-columns: minmax(0, 1fr); gap: 9px; padding-top: 10px; }
-    #jianlu-root .jl-run-actions { justify-content: flex-end; }
-    #jianlu-root .jl-run-actions .jl-button { flex: 1; }
-    #jianlu-root .jl-progress-row { padding-left: 12px; padding-right: 12px; gap: 7px; }
-    #jianlu-root .jl-filter-toolbar { gap: 0; flex-wrap: wrap; }
-    #jianlu-root .jl-filter-tabs .jl-button { min-width: 42px; padding-left: 7px; padding-right: 7px; }
-    #jianlu-root .jl-filter-toolbar > .jl-button { padding-left: 7px; padding-right: 7px; }
-    #jianlu-root .jl-selected-count { font-size: 10px; }
-    #jianlu-root .jl-chunk-list { padding-left: 10px; padding-right: 10px; }
-    #jianlu-root .jl-chunk-row { grid-template-columns: 28px minmax(0, 1fr) auto 28px; gap: 5px; min-height: 76px; }
-    #jianlu-root .jl-check-label { width: 36px; }
-    #jianlu-root .jl-chunk-main { gap: 8px; }
-    #jianlu-root .jl-chunk-meta { font-size: 10px; gap: 7px; flex-wrap: wrap; }
-    #jianlu-root .jl-chunk-error { max-width: 100%; }
-    #jianlu-root .jl-status { font-size: 10px; padding: 3px 5px; }
-    #jianlu-root .jl-modal-layer { padding: 14px; }
-    #jianlu-root .jl-sheet-layer { padding: 0; }
-    #jianlu-root .jl-sheet { width: 100%; height: 92%; max-height: 100%; border-radius: 16px 16px 0 0; border-bottom: 0; }
-    #jianlu-root .jl-sheet-header { padding-left: 12px; padding-right: 12px; }
-    #jianlu-root .jl-sheet-body { padding: 10px 12px; }
-    #jianlu-root .jl-sheet-tabs { padding-left: 10px; padding-right: 10px; }
-    #jianlu-root .jl-sheet-tabs .jl-button { padding-left: 10px; padding-right: 10px; }
-    #jianlu-root .jl-sheet-footer { padding-left: 12px; padding-right: 12px; gap: 6px; }
-    #jianlu-root .jl-sheet-footer .jl-button { padding-left: 9px; padding-right: 9px; }
-    #jianlu-root .jl-sheet-footer .jl-grow { display: none; }
-    #jianlu-root .jl-sheet-footer .jl-primary { margin-left: auto; }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-    #jianlu-root .jl-button { transition: background-color .12s, border-color .12s; }
-}
-
-#jianlu-root[data-theme="cream"] {--jl-bg:#f8f2e8;--jl-surface:#fffaf3;--jl-text:#493e31;--jl-accent:#9a754b;--jl-accent-text:#fff;--jl-underlay:#f8f2e8;color-scheme:light}
-#jianlu-root[data-theme="sage"] {--jl-bg:#eaf0e7;--jl-surface:#f7faf4;--jl-text:#334537;--jl-accent:#60836b;--jl-accent-text:#fff;--jl-underlay:#eaf0e7;color-scheme:light}
-#jianlu-root[data-theme="mist"] {--jl-bg:#eef1f3;--jl-surface:#fcfcfd;--jl-text:#34434e;--jl-accent:#6b8293;--jl-accent-text:#fff;--jl-underlay:#eef1f3;color-scheme:light}
-#jianlu-root[data-theme="rose"] {--jl-bg:#f5edef;--jl-surface:#fff8fa;--jl-text:#533b45;--jl-accent:#aa7485;--jl-accent-text:#fff;--jl-underlay:#f5edef;color-scheme:light}
-#jianlu-root[data-theme="ocean"] {--jl-bg:#eaf2f3;--jl-surface:#f8fdfd;--jl-text:#2f4d53;--jl-accent:#538b92;--jl-accent-text:#fff;--jl-underlay:#eaf2f3;color-scheme:light}
+#jianlu-root[data-theme="light"] {--jl-bg:#f5f4f0;--jl-surface:#fff;--jl-text:#243047;--jl-accent:#a06729;--jl-accent-text:#fff;--jl-underlay:#f5f4f0;--jl-danger:#a94545;color-scheme:light}
+#jianlu-root[data-theme="dark"] {--jl-bg:#282a32;--jl-surface:#323640;--jl-text:#e2e7e8;--jl-accent:#85b4b5;--jl-accent-text:#213237;--jl-underlay:#282a32;color-scheme:dark}
+#jianlu-root[data-theme="cream"] {--jl-bg:#f7f0e4;--jl-surface:#fffaf1;--jl-text:#4d4032;--jl-accent:#927042;--jl-accent-text:#fff;--jl-underlay:#f7f0e4;--jl-danger:#a94545;color-scheme:light}
+#jianlu-root[data-theme="sage"] {--jl-bg:#eaf0e7;--jl-surface:#f8faf5;--jl-text:#334537;--jl-accent:#52725a;--jl-accent-text:#fff;--jl-underlay:#eaf0e7;--jl-danger:#a94545;color-scheme:light}
+#jianlu-root[data-theme="mist"] {--jl-bg:#edf0f2;--jl-surface:#fcfcfd;--jl-text:#34434e;--jl-accent:#5b7487;--jl-accent-text:#fff;--jl-underlay:#edf0f2;--jl-danger:#a94545;color-scheme:light}
+#jianlu-root[data-theme="rose"] {--jl-bg:#f5edef;--jl-surface:#fff8fa;--jl-text:#533b45;--jl-accent:#986075;--jl-accent-text:#fff;--jl-underlay:#f5edef;--jl-danger:#a94545;color-scheme:light}
+#jianlu-root[data-theme="ocean"] {--jl-bg:#eaf2f3;--jl-surface:#f8fdfd;--jl-text:#2f4d53;--jl-accent:#437981;--jl-accent-text:#fff;--jl-underlay:#eaf2f3;--jl-danger:#a94545;color-scheme:light}
 #jianlu-root[data-theme="plum"] {--jl-bg:#282431;--jl-surface:#332e40;--jl-text:#eae2f1;--jl-accent:#b49bcb;--jl-accent-text:#282036;--jl-underlay:#282431;color-scheme:dark}
-#jianlu-root[data-theme="sepia"] {--jl-bg:#e9dfca;--jl-surface:#f6eddb;--jl-text:#53472f;--jl-accent:#8a7146;--jl-accent-text:#fff;--jl-underlay:#e9dfca;color-scheme:light}
-#jianlu-root .jl-add-button{flex:0 0 34px!important;width:34px;min-width:34px;padding:4px;font-size:21px;border:0;background:var(--jl-soft)}
-#jianlu-root .jl-count{font-size:11px;white-space:nowrap;color:var(--jl-muted);font-variant-numeric:tabular-nums}
-#jianlu-root .jl-delete-block{color:var(--jl-danger);opacity:.85;font-size:11px;width:30px;min-width:28px;padding:2px;border:0}
-#jianlu-root .jl-live{flex:0 0 auto;margin:0 18px 4px;border:1px solid var(--jl-line);border-radius:10px;overflow:hidden;background:var(--jl-soft)}
-#jianlu-root .jl-live summary{font-size:11px;padding:7px 10px;cursor:pointer;color:var(--jl-muted)}
-#jianlu-root .jl-live-text{height:130px;max-height:20vh;min-height:50px;resize:vertical;border:0;border-radius:0;font-size:12px;line-height:1.7}
-#jianlu-root .jl-filter-toolbar{flex-wrap:wrap;row-gap:4px}
-#jianlu-root .jl-filter-toolbar>.jl-danger{font-size:11px;padding:5px 8px}
-#jianlu-root .jl-dialog-wide{width:min(780px,100%);max-height:min(86vh,calc(var(--jl-viewport-height,100dvh) - 40px))}
-#jianlu-root .jl-library-tools{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
-#jianlu-root .jl-library-tools>input{flex:1;min-width:130px}
-#jianlu-root .jl-library-tools>select{width:auto;max-width:120px}
-#jianlu-root .jl-library-list{max-height:43vh;overflow:auto;overscroll-behavior:contain;touch-action:pan-y pinch-zoom}
-#jianlu-root .jl-library-row{display:flex;gap:12px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--jl-line)}
-#jianlu-root .jl-dialog-body .jl-library-edit{display:flex;flex:1;flex-direction:column;align-items:flex-start;text-align:left;min-width:0;border:0;padding:8px;white-space:normal}
-#jianlu-root .jl-run-actions{align-items:center;gap:6px}
-@media(max-width:650px){#jianlu-root .jl-header{padding-top:14px;padding-bottom:12px}#jianlu-root .jl-run-actions>.jl-button{flex:0 1 auto;padding-left:8px;padding-right:8px}#jianlu-root .jl-live{margin-left:12px;margin-right:12px}#jianlu-root .jl-filter-tabs .jl-button{min-width:32px;padding:6px 5px;font-size:11px}#jianlu-root .jl-selected-count{margin-left:3px}}
+#jianlu-root[data-theme="sepia"] {--jl-bg:#e9dfca;--jl-surface:#f6eddb;--jl-text:#53472f;--jl-accent:#80643c;--jl-accent-text:#fff;--jl-underlay:#e9dfca;--jl-danger:#a94545;color-scheme:light}
+#jianlu-root[hidden],#jianlu-root [hidden] {display:none!important}
+#jianlu-root *,#jianlu-root *::before,#jianlu-root *::after {box-sizing:border-box}
+#jianlu-root h1,#jianlu-root h2,#jianlu-root h3,#jianlu-root p {margin:0;padding:0;color:inherit;font:inherit;text-shadow:none}
+#jianlu-root button,#jianlu-root input,#jianlu-root select,#jianlu-root textarea {font:inherit;color:inherit;text-shadow:none;box-shadow:none;letter-spacing:normal;max-width:100%;-webkit-text-fill-color:currentColor}
+#jianlu-root button {touch-action:manipulation;cursor:pointer}
+#jianlu-root .jl-backdrop {position:absolute;inset:0;background:rgb(15 20 28 / 48%)}
+#jianlu-root .jl-frame {position:relative;display:flex;flex-direction:column;width:min(1440px,calc(100% - 40px));height:calc(var(--jl-viewport-height,100dvh) - 32px);max-height:1120px;min-height:0;border:1px solid var(--jl-line);border-radius:18px;overflow:hidden;background:linear-gradient(var(--jl-bg),var(--jl-bg)),var(--jl-underlay);box-shadow:0 20px 70px rgb(0 0 0 / 25%);outline:none}
+#jianlu-root .jl-chrome {flex:0 0 auto}
+#jianlu-root .jl-header {display:flex;align-items:center;gap:12px;padding:14px 22px 10px;min-height:64px}
+#jianlu-root .jl-brand {display:flex;align-items:center;gap:9px;flex-shrink:0;font-size:16px;font-weight:600;letter-spacing:.02em}
+#jianlu-root .jl-logo {width:27px;height:27px;color:var(--jl-accent)}
+#jianlu-root .jl-header-title {flex:1;min-width:0;font-size:12px;color:var(--jl-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:12px;border-left:1px solid var(--jl-line)}
+#jianlu-root .jl-header-space,#jianlu-root .jl-grow {flex:1}
+#jianlu-root .jl-navigation {display:flex;flex:0 0 auto;gap:6px;align-items:center;padding:8px 22px 14px;border-bottom:1px solid var(--jl-line)}
+#jianlu-root .jl-button,#jianlu-root .jl-dialog-body button {display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:8px 13px;min-height:36px;margin:0;border:1px solid var(--jl-line);border-radius:9px;background:var(--jl-surface);color:var(--jl-text);font-size:12px;line-height:1.4;font-weight:400;white-space:nowrap;appearance:none;-webkit-appearance:none;user-select:none;-webkit-tap-highlight-color:transparent;text-decoration:none}
+#jianlu-root .jl-button:hover,#jianlu-root .jl-dialog-body button:hover {background:var(--jl-soft)}
+#jianlu-root button:disabled {opacity:.4;cursor:default}
+#jianlu-root button:focus-visible,#jianlu-root input:focus-visible,#jianlu-root select:focus-visible,#jianlu-root textarea:focus-visible {outline:2px solid var(--jl-accent);outline-offset:2px}
+#jianlu-root .jl-primary {background:var(--jl-accent);color:var(--jl-accent-text);border-color:transparent}
+#jianlu-root .jl-primary:hover {background:color-mix(in srgb,var(--jl-accent) 92%,var(--jl-text))}
+#jianlu-root .jl-quiet {border-color:transparent;background:transparent;color:var(--jl-muted)}
+#jianlu-root .jl-danger {color:var(--jl-danger)}
+#jianlu-root .jl-icon-button {width:36px;min-width:36px;padding:5px;border:0;background:var(--jl-soft);font-size:20px}
+#jianlu-root .jl-nav-item {border:0;border-radius:999px;background:transparent;padding:8px 18px;min-height:38px;color:var(--jl-muted)}
+#jianlu-root .jl-nav-active {background:var(--jl-accent);color:var(--jl-accent-text)}
+#jianlu-root .jl-nav-active:hover {background:var(--jl-accent)}
+#jianlu-root .jl-nav-symbol {width:19px;height:19px;flex:0 0 auto}
+#jianlu-root .jl-nav-label {font-size:12px}
+#jianlu-root .jl-content,#jianlu-root .jl-page-host {display:flex;flex:1;min-height:0;flex-direction:column;padding:20px 24px;overflow:hidden}
+#jianlu-root .jl-toolbar {display:flex;align-items:center;gap:8px;min-width:0;flex:0 0 auto}
+#jianlu-root .jl-section-title {font-size:18px;font-weight:600}
+#jianlu-root .jl-project-toolbar {padding:2px 0 20px}
+#jianlu-root .jl-muted {color:var(--jl-muted);font-size:12px}
+#jianlu-root .jl-scroll {min-height:0;flex:1;overflow:auto;overscroll-behavior:contain;touch-action:pan-y pinch-zoom;-webkit-overflow-scrolling:touch}
+#jianlu-root .jl-project-grid {display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px;align-content:start}
+#jianlu-root .jl-project-card {display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:20px;min-height:150px;text-align:left;border-radius:13px;white-space:normal}
+#jianlu-root .jl-project-symbol {color:var(--jl-accent);font-size:22px}
+#jianlu-root .jl-project-name {font-size:15px;font-weight:600}
+#jianlu-root .jl-project-source {font-size:12px;color:var(--jl-muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#jianlu-root .jl-project-meta {display:flex;gap:14px;font-size:11px;color:var(--jl-muted);width:100%;justify-content:space-between;margin-top:12px}
+#jianlu-root .jl-project-nav {margin-bottom:14px}
+#jianlu-root .jl-source-button {max-width:65%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;padding-left:0;font-size:13px}
+#jianlu-root .jl-word-count {white-space:nowrap;font-size:11px}
+#jianlu-root .jl-run-toolbar {display:flex;gap:12px;margin-bottom:16px}
+#jianlu-root .jl-run-picker {display:block;flex:1;min-width:0;max-width:520px}
+#jianlu-root select {display:block;appearance:auto;-webkit-appearance:menulist;min-height:38px;width:100%;padding:8px 10px;margin:0;border:1px solid var(--jl-line);border-radius:9px;color:var(--jl-text);background:linear-gradient(var(--jl-surface),var(--jl-surface)),var(--jl-underlay);font-size:12px;touch-action:manipulation}
+#jianlu-root option {background:var(--jl-underlay);color:var(--jl-text)}
+#jianlu-root .jl-run-actions {display:flex;align-items:center;gap:10px;flex:1;justify-content:flex-end}
+#jianlu-root .jl-add-button {width:36px;min-width:36px;padding:4px;border:0;background:var(--jl-soft);font-size:22px}
+#jianlu-root .jl-count {font-size:12px;white-space:nowrap;color:var(--jl-muted);font-variant-numeric:tabular-nums}
+#jianlu-root .jl-task-panels {display:none}
+#jianlu-root .jl-job-layout {display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);flex:1;min-height:0;gap:18px}
+#jianlu-root .jl-blocks-panel,#jianlu-root .jl-live {display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--jl-surface);border:1px solid var(--jl-line);border-radius:12px;overflow:hidden}
+#jianlu-root .jl-filter-toolbar {padding:12px;gap:5px;flex-wrap:wrap;border-bottom:1px solid var(--jl-line)}
+#jianlu-root .jl-filter-tabs {display:flex;gap:3px}
+#jianlu-root .jl-filter-tabs .jl-button {padding:6px 9px;min-height:32px;border:0;background:transparent;font-size:11px}
+#jianlu-root .jl-filter-tabs .jl-filter-active,#jianlu-root .jl-filter-active {background:color-mix(in srgb,var(--jl-accent) 13%,transparent);color:var(--jl-accent)}
+#jianlu-root .jl-filter-toolbar>.jl-button {padding:5px 7px;min-height:30px;font-size:11px;background:transparent}
+#jianlu-root .jl-selected-count {font-size:10px;color:var(--jl-muted);white-space:nowrap}
+#jianlu-root .jl-chunk-list {padding:0 12px}
+#jianlu-root .jl-chunk-row {display:grid;grid-template-columns:30px minmax(0,1fr) auto 38px;align-items:center;gap:8px;min-height:82px;border-bottom:1px solid var(--jl-line)}
+#jianlu-root .jl-chunk-row:last-child {border-bottom:0}
+#jianlu-root .jl-chunk-row[data-selected="true"] {background:color-mix(in srgb,var(--jl-accent) 7%,transparent)}
+#jianlu-root .jl-chunk-row[data-open="true"] {background:color-mix(in srgb,var(--jl-accent) 6%,transparent)}
+#jianlu-root .jl-check-label {display:flex;align-items:center;justify-content:center;min-height:42px;cursor:pointer;margin:0}
+#jianlu-root input[type="checkbox"] {appearance:auto;-webkit-appearance:checkbox;accent-color:var(--jl-accent);width:16px;height:16px;min-width:16px;min-height:16px;margin:0;padding:0;border:initial;border-radius:initial;background:initial;box-shadow:none;filter:none;transform:none;cursor:pointer;flex-shrink:0}
+#jianlu-root input[type="checkbox"]::before,#jianlu-root input[type="checkbox"]::after {display:none;content:none}
+#jianlu-root .jl-chunk-open {display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;padding:14px 0;border:0;background:transparent;text-align:left}
+#jianlu-root .jl-chunk-main {display:flex;gap:10px;min-width:0}
+#jianlu-root .jl-chunk-number {font-size:10px;color:var(--jl-muted);font-variant-numeric:tabular-nums;padding-top:3px}
+#jianlu-root .jl-chunk-label {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+#jianlu-root .jl-chunk-meta {display:flex;flex-wrap:wrap;gap:5px 10px;font-size:10px;color:var(--jl-muted);min-width:0}
+#jianlu-root .jl-chunk-error {color:var(--jl-danger);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#jianlu-root .jl-status {padding:3px 6px;border-radius:6px;background:var(--jl-soft);color:var(--jl-muted);font-size:10px;white-space:nowrap}
+#jianlu-root .jl-status-done,#jianlu-root .jl-status-running {color:var(--jl-accent);background:color-mix(in srgb,var(--jl-accent) 10%,transparent)}
+#jianlu-root .jl-status-failed {color:var(--jl-danger);background:color-mix(in srgb,var(--jl-danger) 9%,transparent)}
+#jianlu-root .jl-status-partial {color:var(--jl-warning)}
+#jianlu-root .jl-delete-block {min-width:36px;width:38px;min-height:38px;padding:2px;border:0;background:transparent;color:var(--jl-danger);font-size:11px}
+#jianlu-root .jl-pagination {display:flex;align-items:center;justify-content:center;gap:20px;padding:8px 12px;border-top:1px solid var(--jl-line);flex:0 0 auto}
+#jianlu-root .jl-preview-heading {display:flex;align-items:center;gap:10px;padding:11px 15px;border-bottom:1px solid var(--jl-line);flex:0 0 auto}
+#jianlu-root .jl-preview-heading h2 {font-size:13px;font-weight:600;flex:1}
+#jianlu-root .jl-preview-count {font-size:10px;color:var(--jl-muted)}
+#jianlu-root .jl-live-text {flex:1;height:100%;min-height:0!important;border:0!important;border-radius:0!important;resize:none!important;padding:18px!important;line-height:1.9!important;font-size:12px!important;background:transparent!important}
+#jianlu-root .jl-empty {display:flex;flex:1;min-height:140px;align-items:center;justify-content:center;flex-direction:column;gap:18px;color:var(--jl-muted);font-size:12px}
+#jianlu-root .jl-empty-mark {font-size:28px;color:var(--jl-accent);opacity:.65}
+#jianlu-root .jl-notice {padding:10px 14px;margin-bottom:12px;max-height:80px;overflow:auto;background:color-mix(in srgb,var(--jl-warning) 8%,transparent);color:var(--jl-warning);border-radius:8px;font-size:12px;flex:0 0 auto}
+#jianlu-root .jl-overlays {position:absolute;inset:0;pointer-events:none}
+#jianlu-root .jl-modal-layer,#jianlu-root .jl-sheet-layer {position:absolute;inset:0;pointer-events:auto;display:flex;align-items:center;justify-content:center;background:rgb(10 15 22 / 45%);padding:18px}
+#jianlu-root .jl-dialog,#jianlu-root .jl-sheet {display:flex;flex-direction:column;min-height:0;width:min(760px,100%);max-height:calc(var(--jl-viewport-height,100dvh) - 36px);border:1px solid var(--jl-line);border-radius:16px;background:linear-gradient(var(--jl-bg),var(--jl-bg)),var(--jl-underlay);box-shadow:0 20px 70px rgb(0 0 0 / 25%);overflow:hidden;outline:none}
+#jianlu-root .jl-dialog-wide {width:min(1120px,100%);height:calc(var(--jl-viewport-height,100dvh) - 64px)}
+#jianlu-root .jl-sheet {width:min(1280px,100%);height:calc(var(--jl-viewport-height,100dvh) - 48px)}
+#jianlu-root .jl-inline-sheet-layer {display:flex;flex:1;min-height:0;overflow:hidden}
+#jianlu-root .jl-inline-sheet {width:100%;height:100%;max-height:none;border:0;border-radius:0;box-shadow:none;background:transparent}
+#jianlu-root .jl-inline-sheet .jl-sheet-header {padding:12px 15px}
+#jianlu-root .jl-inline-sheet .jl-sheet-heading h2 {font-size:13px}
+#jianlu-root .jl-inline-sheet .jl-sheet-body {padding:12px}
+#jianlu-root .jl-inline-sheet .jl-sheet-footer {padding:12px;gap:7px}
+#jianlu-root .jl-inline-sheet .jl-sheet-footer .jl-button {font-size:11px;padding:7px 9px}
+#jianlu-root .jl-sheet-header {display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 20px;border-bottom:1px solid var(--jl-line);flex:0 0 auto}
+#jianlu-root .jl-sheet-header h2 {font-size:15px;font-weight:600}
+#jianlu-root .jl-sheet-heading {min-width:0}
+#jianlu-root .jl-sheet-heading h2 {overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#jianlu-root .jl-sheet-heading .jl-muted {display:block;margin-top:4px;font-size:11px}
+#jianlu-root .jl-dialog-body {flex:1;min-height:0;padding:20px;overflow:auto;overscroll-behavior:contain;touch-action:pan-y pinch-zoom;-webkit-overflow-scrolling:touch}
+#jianlu-root .jl-form {display:flex;flex-direction:column;gap:16px;min-width:0}
+#jianlu-root .jl-form>label {display:flex;flex-direction:column;gap:7px;font-size:12px;color:var(--jl-muted);min-width:0}
+#jianlu-root input:not([type="checkbox"]):not([type="radio"]),#jianlu-root textarea {display:block;width:100%;min-height:38px;margin:0;padding:9px 11px;border:1px solid var(--jl-line);border-radius:8px;background:var(--jl-surface);color:var(--jl-text);font-size:12px;outline:none}
+#jianlu-root textarea {min-height:110px;resize:vertical;line-height:1.8;tab-size:2;white-space:pre-wrap;overflow-wrap:anywhere}
+#jianlu-root .jl-dialog-footer,#jianlu-root .jl-sheet-footer {display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;padding:12px 20px;border-top:1px solid var(--jl-line);flex:0 0 auto}
+#jianlu-root .jl-dialog-menu {width:min(420px,100%)}
+#jianlu-root .jl-dialog-menu .jl-dialog-body {padding:12px 16px 4px;flex:0 0 auto;font-size:11px;color:var(--jl-muted)}
+#jianlu-root .jl-dialog-menu .jl-dialog-footer {display:flex;flex-direction:column;flex-wrap:nowrap;overflow:auto;min-height:0;justify-content:flex-start;border:0;padding:8px 12px 12px}
+#jianlu-root .jl-dialog-menu .jl-dialog-footer .jl-button {width:100%;justify-content:flex-start;min-height:42px;flex:0 0 auto;border:0;background:transparent}
+#jianlu-root .jl-settings-section {display:flex;flex-direction:column;gap:12px;padding-top:16px;border-top:1px solid var(--jl-line)}
+#jianlu-root .jl-settings-section:first-child {padding-top:0;border:0}
+#jianlu-root .jl-settings-heading {font-size:11px!important;color:var(--jl-muted)!important}
+#jianlu-root .jl-settings-row {display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px;text-align:left}
+#jianlu-root .jl-settings-value {min-width:0;color:var(--jl-muted);font-size:11px;overflow-wrap:anywhere}
+#jianlu-root .jl-sheet-tabs {display:flex;gap:4px;padding:10px 16px;border-bottom:1px solid var(--jl-line);overflow:auto;flex:0 0 auto}
+#jianlu-root .jl-tab-active {color:var(--jl-accent);background:color-mix(in srgb,var(--jl-accent) 12%,transparent)}
+#jianlu-root .jl-sheet-body,#jianlu-root .jl-pane {display:flex;flex-direction:column;flex:1;min-height:0}
+#jianlu-root .jl-sheet-body {padding:16px 20px}
+#jianlu-root .jl-chunk-textarea {flex:1;min-height:0!important;height:100%;resize:none!important;overflow:auto;overscroll-behavior:contain;touch-action:pan-y pinch-zoom}
+#jianlu-root .jl-page-layer {display:flex;flex:1;min-height:0}
+#jianlu-root .jl-page-surface {width:100%;height:100%;max-height:none;border:0;border-radius:0;background:transparent;box-shadow:none}
+#jianlu-root .jl-page-surface>.jl-sheet-header {border:0;padding:0 0 12px}
+#jianlu-root .jl-page-surface>.jl-sheet-header h2 {font-size:18px}
+#jianlu-root .jl-page-surface>.jl-dialog-footer {border:0;padding:0 0 16px;justify-content:flex-start}
+#jianlu-root .jl-page-surface>.jl-dialog-body {padding:0}
+#jianlu-root .jl-library-tools {display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex:0 0 auto}
+#jianlu-root .jl-library-tools>input {flex:1;min-width:140px;max-width:400px}
+#jianlu-root .jl-library-tools>select {width:auto;max-width:130px}
+#jianlu-root .jl-library-list {display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));align-content:start;gap:12px;max-height:none;overflow:auto;min-height:0;flex:1;overscroll-behavior:contain;touch-action:pan-y pinch-zoom;padding:1px 2px 12px}
+#jianlu-root .jl-page-surface .jl-dialog-body>.jl-form {height:100%;min-height:0}
+#jianlu-root .jl-library-row {display:grid;grid-template-columns:24px minmax(0,1fr);align-items:start;gap:10px;padding:17px;border:1px solid var(--jl-line);border-radius:12px;background:var(--jl-surface)}
+#jianlu-root .jl-library-row>input {margin-top:9px}
+#jianlu-root .jl-dialog-body .jl-library-edit {display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:4px 0;min-width:0;border:0;background:transparent;text-align:left;white-space:normal}
+#jianlu-root .jl-library-edit strong {font-size:14px;font-weight:600}
+#jianlu-root .jl-library-edit .jl-muted {font-size:11px}
+#jianlu-root .jl-library-row-actions {grid-column:2;display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+#jianlu-root .jl-library-row-actions button {font-size:11px;padding:6px 9px;min-height:32px;background:var(--jl-soft);border:0}
+#jianlu-root .jl-entity-form {display:grid;grid-template-columns:1fr 1fr;gap:16px 20px}
+#jianlu-root .jl-wide-field {grid-column:1/-1}
+#jianlu-root .jl-prompt-editor {min-height:280px;flex:1}
+#jianlu-root .jl-prompt-editor>label:last-of-type {flex:1;min-height:0}
+#jianlu-root .jl-prompt-editor textarea {min-height:260px;flex:1}
+#jianlu-root .jl-prompt-tools {display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+#jianlu-root .jl-prompt-tools button {font-size:11px;min-height:30px;padding:5px 8px}
+#jianlu-root .jl-inline-status {font-size:12px;white-space:pre-wrap;color:var(--jl-danger)!important}
+#jianlu-root .jl-publish-form {display:grid;grid-template-columns:1fr 1fr;gap:16px 20px}
+#jianlu-root .jl-publish-form>label:last-child,#jianlu-root .jl-publish-form>.jl-inline-status {grid-column:1/-1}
+#jianlu-root .jl-publish-form textarea {min-height:260px}
+#jianlu-root .jl-toast {position:absolute;bottom:max(28px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:20;max-width:min(90vw,600px);padding:12px 16px;border:1px solid var(--jl-line);border-radius:10px;background:linear-gradient(var(--jl-surface),var(--jl-surface)),var(--jl-underlay);box-shadow:0 8px 24px rgb(0 0 0 / 20%);font-size:12px;white-space:pre-wrap;pointer-events:none}
+#jianlu-root .jl-copy-field {position:fixed;opacity:0;left:-10000px;top:0}
+@media(max-width:950px) {
+    #jianlu-root .jl-task-panels {display:flex;gap:6px;flex:0 0 auto;margin-bottom:12px}
+    #jianlu-root .jl-task-panels .jl-button {flex:1;border:0}
+    #jianlu-root .jl-job-layout {display:flex;flex-direction:column}
+    #jianlu-root .jl-blocks-panel,#jianlu-root .jl-live {flex:1}
+    #jianlu-root .jl-job-layout[data-mobile-panel="chunks"]>.jl-live,#jianlu-root .jl-job-layout[data-mobile-panel="output"]>.jl-blocks-panel {display:none}
+}
+@media(max-width:650px) {
+    #jianlu-root {place-items:end center}
+    #jianlu-root .jl-frame {width:100%;height:calc(var(--jl-viewport-height,100dvh) * .96);max-height:none;border:0;border-radius:18px 18px 0 0;box-shadow:0 -12px 50px rgb(0 0 0 / 18%)}
+    #jianlu-root .jl-header {padding:14px 14px 8px;min-height:62px;gap:9px}
+    #jianlu-root .jl-brand {font-size:15px;gap:6px}
+    #jianlu-root .jl-logo {width:23px;height:23px}
+    #jianlu-root .jl-header-title {font-size:11px;padding-left:8px}
+    #jianlu-root .jl-icon-button {width:34px;min-width:34px;min-height:34px}
+    #jianlu-root .jl-navigation {order:5;justify-content:space-around;padding:7px 5px max(9px,env(safe-area-inset-bottom));border-top:1px solid var(--jl-line);border-bottom:0;background:var(--jl-surface);gap:0}
+    #jianlu-root .jl-nav-item {flex:1;display:flex;flex-direction:column;gap:4px;padding:4px;border-radius:0;min-height:46px;background:transparent;color:var(--jl-muted)}
+    #jianlu-root .jl-nav-active {color:var(--jl-accent)}
+    #jianlu-root .jl-nav-active:hover {background:transparent}
+    #jianlu-root .jl-nav-symbol {width:22px;height:22px}
+    #jianlu-root .jl-nav-label {font-size:10px}
+    #jianlu-root .jl-content,#jianlu-root .jl-page-host {padding:12px 14px}
+    #jianlu-root .jl-project-nav {margin-bottom:8px;gap:8px}
+    #jianlu-root .jl-project-nav>.jl-quiet {padding:7px 0;font-size:11px}
+    #jianlu-root .jl-source-button {max-width:52%;font-size:12px}
+    #jianlu-root .jl-word-count {font-size:10px}
+    #jianlu-root .jl-run-toolbar {flex-wrap:wrap;gap:8px;margin-bottom:10px}
+    #jianlu-root .jl-run-picker {max-width:none;flex:1;min-width:130px}
+    #jianlu-root .jl-run-actions {gap:8px;flex:0 0 auto}
+    #jianlu-root .jl-run-actions .jl-button {padding:8px 10px}
+    #jianlu-root .jl-add-button {width:32px;min-width:32px}
+    #jianlu-root .jl-count {font-size:10px}
+    #jianlu-root .jl-task-panels {margin-bottom:10px}
+    #jianlu-root .jl-filter-toolbar {padding:9px 7px;gap:3px}
+    #jianlu-root .jl-filter-tabs .jl-button {padding:6px 7px;font-size:11px}
+    #jianlu-root .jl-selected-count {font-size:10px}
+    #jianlu-root .jl-chunk-list {padding:0 7px}
+    #jianlu-root .jl-chunk-row {grid-template-columns:24px minmax(0,1fr) auto 34px;gap:5px;min-height:83px}
+    #jianlu-root .jl-chunk-label {font-size:12px}
+    #jianlu-root .jl-chunk-main {gap:7px}
+    #jianlu-root .jl-status {font-size:10px;padding:3px 5px}
+    #jianlu-root .jl-delete-block {min-width:32px;width:34px;font-size:10px}
+    #jianlu-root .jl-modal-layer,#jianlu-root .jl-sheet-layer {padding:8px;align-items:center}
+    #jianlu-root .jl-dialog,#jianlu-root .jl-sheet {max-height:calc(var(--jl-viewport-height,100dvh) - 16px);width:100%;border-radius:14px}
+    #jianlu-root .jl-dialog-wide,#jianlu-root .jl-sheet {height:calc(var(--jl-viewport-height,100dvh) - 20px)}
+    #jianlu-root .jl-sheet-header,#jianlu-root .jl-dialog-footer,#jianlu-root .jl-sheet-footer {padding:12px 14px}
+    #jianlu-root .jl-dialog-body,#jianlu-root .jl-sheet-body {padding:14px}
+    #jianlu-root .jl-sheet-tabs {padding:8px 10px}
+    #jianlu-root .jl-sheet-tabs .jl-button {padding:7px 10px}
+    #jianlu-root .jl-sheet-footer {gap:6px}
+    #jianlu-root .jl-sheet-footer .jl-button {font-size:11px;padding:7px 9px}
+    #jianlu-root .jl-sheet-footer .jl-grow {display:none}
+    #jianlu-root .jl-page-surface {border:0;border-radius:0;height:100%}
+    #jianlu-root .jl-page-surface>.jl-dialog-footer {gap:6px;padding-bottom:12px}
+    #jianlu-root .jl-page-surface>.jl-dialog-footer .jl-button {padding:7px 10px;font-size:11px}
+    #jianlu-root .jl-library-tools {gap:6px}
+    #jianlu-root .jl-library-tools>input {min-width:140px;max-width:none}
+    #jianlu-root .jl-library-tools>select {max-width:100px}
+    #jianlu-root .jl-library-tools button {padding:7px 8px;font-size:11px}
+    #jianlu-root .jl-library-list {grid-template-columns:1fr;gap:10px}
+    #jianlu-root .jl-library-row {padding:14px}
+    #jianlu-root .jl-entity-form {display:flex;flex-direction:column}
+    #jianlu-root .jl-publish-form {display:flex;flex-direction:column}
+    #jianlu-root .jl-prompt-editor textarea {min-height:240px}
+    #jianlu-root .jl-toast {bottom:max(80px,env(safe-area-inset-bottom));max-width:92vw}
+}
+@media(prefers-reduced-motion:no-preference) {#jianlu-root button {transition:background-color .12s,color .12s}}

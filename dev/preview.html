@@ -39,19 +39,21 @@ const host = {
 const queue = createQueue({repo,host});
 let app;
 const ui=createUI({onAction:(type,payload)=>app.handle(type,payload)});
-const tavern={targets:async()=>({characters:[{id:'demo.png',name:'示例角色卡'}],worldbooks:['示例世界书']}),writeCharacter:async()=>({name:'示例角色卡'}),writeWorldbook:async()=>({name:'示例世界书'})};
+const published=[];
+const tavern={targets:async()=>({characters:[{id:'demo.png',name:'同名角色卡'},{id:'second.png',name:'同名角色卡'}],worldbooks:['示例世界书','示例世界书乙']}),writeCharacter:async data=>{published.push({kind:'character',...data});return{name:'示例角色卡'};},writeWorldbook:async data=>{published.push({kind:'world',...data});return{name:data.name};}};
 app=createController({repo,host,queue,ui,tavern,context:()=>({extensionSettings:{jianlu:{theme:'light',fontSize:13}}})});
 await app.init();
 const source=Array.from({length:40},(_,i)=>`第${i+1}章${['雾中的信','钟楼','长街','海风'][i%4]}\n\n清晨，码头收到一封没有署名的信。沈青把信放进外套口袋，沿着旧石阶走向钟楼。\n\n${'海风吹过廊桥，路灯次第熄灭。\n'.repeat(12)}\n`).join('');
 const project=await repo.createProject({title:'雾港来信',sourceName:'雾港来信.txt',sourceText:source});
-await repo.saveLibrary(project.id,{version:1,format:'名称:\n  类型:\n  身份:\n  经历:\n  依据:',items:[normalizeEntity({name:'沈青',outputName:'青',content:'沈青收到一封没有署名的信。'}),normalizeEntity({name:'信',type:'prop',content:'码头收到的信，没有署名。'})]});
+await repo.saveLibrary(project.id,{version:1,format:'名称:\n  类型:\n  身份:\n  经历:\n  依据:',items:[normalizeEntity({name:'沈青',outputName:'青',content:'沈青收到一封没有署名的信。'}),normalizeEntity({name:'信',type:'prop',content:'码头收到的信，没有署名。'}),normalizeEntity({name:'钟楼',type:'setting',content:'雾港的旧钟楼，位于石阶尽头。'})]});
 const run=await queue.plan({projectId:project.id,title:'第一轮处理',splitMode:'chapters',chaptersPerChunk:1});
 for(const [i,status] of ['done','done','failed','partial'].entries()){
  const chunk=await repo.getChunk(run.id,run.chunks[i].id);
- await repo.saveChunk(run.id,{...chunk,status,output:status==='done'?'这里是已保存的处理结果。':status==='partial'?'已经输出的一部分内容':'',error:status==='failed'?'连接中断':''});
+ await repo.saveChunk(run.id,{...chunk,status,output:status==='done'?'主名称：青\n\n人物资料\n\n沈青在清晨收到一封没有署名的信，将它放进外套口袋，随后沿着旧石阶前往钟楼。\n\n关联道具：无署名的信。\n关联地点：雾港钟楼。\n\n未确认：寄信人的身份与来意。':status==='partial'?'已经输出的一部分内容':'',error:status==='failed'?'连接中断':''});
 }
 await app.handle('openProject',{id:project.id});
 await app.open();
+globalThis.__jlDemo={app,repo,queue,ui,published};
 document.documentElement.dataset.ready='true';
 </script>
 </body></html>

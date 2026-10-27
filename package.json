@@ -1,10 +1,10 @@
 {
   "name": "st-jianlu",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
-    "check": "node --check index.js && node --check app.js && node --check host.js && node --check store.js && node --check chunker.js && node --check queue.js && node --check ui.js && node --check stream.js && node --check library.js && node --check library-ui.js && node --check tavern.js"
+    "check": "node --check index.js && node --check app.js && node --check host.js && node --check store.js && node --check chunker.js && node --check queue.js && node --check ui.js && node --check stream.js && node --check library.js && node --check library-ui.js && node --check publish-ui.js && node --check tavern.js"
   }
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readCompletion } from '../stream.js';
-import { normalizeEntity,mergeEntities,entityInstructions,collectContext,parseEntities } from '../library.js';
+import { normalizeEntity,mergeEntities,entityInstructions,collectContext,parseEntities,promptFor } from '../library.js';
 import { createTavern,characterCard } from '../tavern.js';
 import { createRepository } from '../store.js';
 import { createQueue } from '../queue.js';
@@ -35,6 +35,14 @@ test('流式网络错误保留新内容及上一版，不丢弃失败块片段',
 test('检索名与输出主名称独立；关联族群不自动变成同人别名',()=>{
     const a=normalizeEntity({name:'abc',outputName:'a',contextTerms:['某族']});const b=normalizeEntity({name:'神剑',type:'prop'});const duplicate=normalizeEntity({name:'abc'});assert.notEqual(a.id,duplicate.id);
     const merged=mergeEntities([a,b],a.id);assert.deepEqual(merged.aliases,[]);assert.deepEqual(merged.contextTerms,['某族','神剑']);assert.match(entityInstructions(merged),/"输出主名称": "a"/);assert.match(entityInstructions(merged),/不得归给主对象/);
+});
+test('可编辑提示词按对象类型与单对象覆盖，自检沿用编辑内容，宏不递归替换',()=>{
+    const e=normalizeEntity({name:'abc',outputName:'a',type:'prop',notes:'保留 {{char}} 与 {{name}}',content:'旧资料'});
+    const prompts={prop:'道具 {{name}} / {{notes}}',check:'检查：{{existing}}'};
+    assert.match(entityInstructions(e,{prompts,check:true}),/道具 a \/ 保留 \{\{char\}\} 与 \{\{name\}\}/);
+    assert.match(entityInstructions(e,{prompts,check:true}),/检查：旧资料/);
+    assert.match(entityInstructions({...e,prompt:'对象覆盖 {{name}}'},{prompts}),/对象覆盖 a/);
+    assert.equal(promptFor({prop:''},'prop'),'');
 });
 test('关联检索支持大小写与正则字符字面值，超范围显式标记',()=>{
     const text='开头 ABC 原文 [x] '+ '片段'.repeat(60)+'\nABC 尾声';const r=collectContext(text,['abc','[x]'],{radius:4,maxChars:100});assert.equal(r.matches,3);assert.match(r.text,/ABC/);const cap=collectContext(text,['ABC'],{radius:300,maxChars:30});assert.equal(cap.truncated,true);assert.ok(cap.text.length<=30);assert.deepEqual(parseEntities('[{"name":"甲","type":"prop"}]').map(x=>x.type),['prop']);
@@ -70,7 +78,7 @@ function tavernFixture(){
     };return{api:createTavern({getContext:()=>ctx,fetch}),cards,worlds,calls};
 }
 test('角色卡新建使用指定主名称；追加只改选定字段并校验保存',async()=>{
-    const f=tavernFixture();await f.api.writeCharacter({target:'new',name:'a',content:'自定义角色资料'});assert.equal(f.cards.get('new.png').data.name,'a');await f.api.writeCharacter({target:'old.png',content:'新资料'});assert.equal(f.cards.get('old.png').description,'旧描述\n\n新资料');assert.equal(f.cards.get('old.png').first_mes,'保留开场');await assert.rejects(f.api.writeCharacter({target:'../bad.png',content:'X'}),/标识无效/);assert.equal(characterCard('甲','资料').spec,'chara_card_v2');
+    const f=tavernFixture();await f.api.writeCharacter({target:'new',name:'a',content:'自定义角色资料'});assert.equal(f.cards.get('new.png').data.name,'a');await f.api.writeCharacter({target:'old.png',content:'新资料'});assert.equal(f.cards.get('old.png').description,'旧描述\n\n新资料');assert.equal(f.cards.get('old.png').first_mes,'保留开场');await assert.rejects(f.api.writeCharacter({target:'../bad.png',content:'X'}),/有效的目标角色卡/);assert.equal(characterCard('甲','资料').spec,'chara_card_v2');
 });
 test('世界书只追加新 UID，不覆盖原条目；同名新建被拒绝',async()=>{
     const f=tavernFixture();await f.api.writeWorldbook({name:'旧书',entries:[{name:'a',content:'新信息',keys:['abc']}]});assert.equal(f.worlds.get('旧书').entries[7].content,'保持原样');assert.equal(f.worlds.get('旧书').entries[8].content,'新信息');assert.deepEqual(f.worlds.get('旧书').entries[8].key,['abc']);await assert.rejects(f.api.writeWorldbook({name:'旧书',create:true,entries:[{name:'x',content:'y'}]}),/同名/);await f.api.writeWorldbook({name:'新书',create:true,entries:[{name:'神剑',content:'道具资料'}]});assert.equal(f.worlds.get('新书').entries[0].comment,'神剑');
