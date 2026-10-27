@@ -1,3 +1,4 @@
+import { readCompletion } from './stream.js';
 /* SillyTavern adapter. No task instructions or API credentials are stored here. */
 const clone = value => value == null ? value : structuredClone(value);
 const SOURCE_MACRO = /\{\{\s*jl_source\s*\}\}/i;
@@ -306,6 +307,7 @@ export function createHost({ getContext, fetch: request = globalThis.fetch?.bind
             if (!messages.some(message => textContent(message.content).includes(input))) {
                 throw new Error('原文未完整进入提示词：请启用预设中的 Chat History，或在启用条目内放入 {{jl_source}}；也请检查上下文容量');
             }
+            if (options.instructions?.trim()) messages.push({ role: 'user', content: String(options.instructions).trim() });
             return {
                 kind: 'st-chat-completion', createdAt: new Date().toISOString(), messages, profile: profile(ctx),
                 presetEntries: selected.map(prompt => ({ identifier: prompt.identifier, name: prompt.name || '', role: roleName(prompt.role), depth: prompt.injection_depth ?? null, position: prompt.injection_position ?? null })),
@@ -316,7 +318,7 @@ export function createHost({ getContext, fetch: request = globalThis.fetch?.bind
         }
     }
 
-    async function generate(snapshot, { signal } = {}) {
+    async function generate(snapshot, { signal, onProgress, stream = true } = {}) {
         if (active || capturing || changingModel) throw new Error('已有请求或模型设置正在执行');
         const ctx = ctxOrThrow();
         assertSupported(ctx);
@@ -360,13 +362,32 @@ export function createHost({ getContext, fetch: request = globalThis.fetch?.bind
                 }
                 if (finalSettings?.model) snapshot.actualProfile = { ...current, model: String(finalSettings.model) };
             };
-            let raw;
-            try { raw = await openai.sendOpenAIRequest('quiet', eventData.chat, signal); }
+            let raw, streamed;
+            try {
+                if (stream && typeof openai.createGenerationParameters === 'function') {
+                    const settings = { ...ctx.chatCompletionSettings, stream_openai: true, n: 1 };
+                    const built = await openai.createGenerationParameters(settings, current.model, 'normal', eventData.chat, {});
+                    const body = built.generate_data;
+                    body.type = 'quiet'; body.n = 1;
+                    delete body.tools; delete body.tool_choice; delete body.parallel_tool_calls;
+                    if (settingsEvent && ctx.eventSource?.emit) await ctx.eventSource.emit(settingsEvent, body);
+                    // Native builders may replace the messages array while filtering it.
+                    // This body belongs to this request, even when array identity changes.
+                    finalSettings = body;
+                    updateActual();
+                    if (signal?.aborted) throw abortError();
+                    const response = await request('/api/backends/chat-completions/generate', {
+                        method: 'POST', headers: ctx.getRequestHeaders(), body: JSON.stringify(body), signal,
+                    });
+                    streamed = await readCompletion(response, { signal, onProgress }); raw = streamed.raw;
+                } else raw = await openai.sendOpenAIRequest('quiet', eventData.chat, signal);
+            }
             finally { updateActual(); }
             if (signal?.aborted) throw abortError();
-            const text = responseText(raw, ctx);
+            const text = streamed?.text ?? responseText(raw, ctx);
+            if (!streamed) onProgress?.(text);
             if (!text.trim()) throw new Error('模型返回了空内容，原始请求已保留');
-            return { text, finishReason: finishReason(raw), raw, requestMessages: clone(snapshot.requestMessages), profile: clone(snapshot.actualProfile), requestStage: snapshot.requestStage, requestNote: snapshot.requestNote };
+            return { text, finishReason: streamed?.finishReason || finishReason(raw), raw, requestMessages: clone(snapshot.requestMessages), profile: clone(snapshot.actualProfile), requestStage: snapshot.requestStage, requestNote: snapshot.requestNote };
         } finally { removeSettings?.(); active = false; }
     }
 

@@ -71,6 +71,8 @@ export function createQueue({ repo, host, onChange } = {}) {
             chunk.error = '';
             chunk.status = 'running';
             chunk.previousOutput = previousOutput;
+            chunk.attemptOutput = '';
+            token.chunkId = chunk.id; token.output = ''; token.label = chunk.label;
             if (options.freshPreset) chunk.snapshot = null;
             // Save the attempt before even reading a preset; crashes retain its identity.
             chunk = await repo.saveChunk(runId, chunk);
@@ -81,6 +83,7 @@ export function createQueue({ repo, host, onChange } = {}) {
                     chunk.snapshot = await abortable(host.capture(source.slice(chunk.start, chunk.end), {
                         projectTitle: project.title, blockIndex: chunk.index, blockTotal: run.chunks.length, blockLabel: chunk.label,
                         rangeStart: chunk.start, rangeEnd: chunk.end, sourceKind: run.sourceKind || 'novel', sourceName: run.sourceName || '',
+                        instructions: [run.instructions, chunk.instructions].filter(Boolean).join('\n\n'),
                     }), signal);
                 }
             } catch (error) { requestError = error; }
@@ -95,15 +98,28 @@ export function createQueue({ repo, host, onChange } = {}) {
                     const duration = Number(run.timeoutMs || 180000);
                     let timedOut = false;
                     const timer = setTimeout(() => { timedOut = true; timeout.abort(); }, Math.max(1000, duration));
+                    let checkpoint = Promise.resolve(), checkpointError, saving = false, lastSaved = 0, lastEmitted = 0;
+                    const progress = text => {
+                        if (timeout.signal.aborted || typeof text !== 'string') return;
+                        chunk.attemptOutput = text; token.output = text;
+                        const tick = Date.now();
+                        if (tick - lastEmitted > 100) { lastEmitted = tick; emit({ kind: 'stream', runId, projectId: run.projectId, chunkId: chunk.id, text, label: chunk.label }); }
+                        if (!saving && tick - lastSaved > 1500) {
+                            saving = true; lastSaved = tick;
+                            checkpoint = repo.saveChunk(runId, { ...chunk, output: text }).catch(error => { checkpointError = error; timeout.abort(); }).finally(() => { saving = false; });
+                        }
+                    };
                     try {
-                        response = await abortable(host.generate(chunk.snapshot, { signal: timeout.signal }), timeout.signal);
+                        response = await abortable(host.generate(chunk.snapshot, { signal: timeout.signal, onProgress: progress, stream: run.stream !== false }), timeout.signal);
                         if (signal.aborted) throw abortError();
                     } catch (error) {
                         requestError = timedOut ? new Error(`请求超时（${Math.round(duration / 1000)} 秒）`) : error;
                     } finally {
                         clearTimeout(timer);
                         signal.removeEventListener('abort', relay);
+                        await checkpoint;
                     }
+                    if (checkpointError) requestError = checkpointError;
                 }
             }
             if (response?.requestMessages) chunk.snapshot = { ...chunk.snapshot, requestMessages: response.requestMessages };
@@ -111,11 +127,11 @@ export function createQueue({ repo, host, onChange } = {}) {
             if (signal.aborted || (requestError?.name === 'AbortError' && !response)) {
                 chunk.status = 'paused';
                 chunk.error = signal.aborted ? '' : String(requestError?.message || '请求已中断');
-                chunk.output = previousOutput;
+                chunk.output = chunk.attemptOutput || previousOutput;
             } else if (requestError) {
-                chunk.status = 'failed';
+                chunk.status = chunk.attemptOutput ? 'partial' : 'failed';
                 chunk.error = String(requestError.message || requestError);
-                chunk.output = previousOutput;
+                chunk.output = chunk.attemptOutput || previousOutput;
             } else {
                 const text = typeof response === 'string' ? response : response?.text;
                 if (typeof text !== 'string' || !text.trim()) {
@@ -132,6 +148,7 @@ export function createQueue({ repo, host, onChange } = {}) {
             }
             // host.generate may have added requestMessages to the snapshot before failing.
             await repo.saveChunk(runId, chunk);
+            if(chunk.output)emit({kind:'stream',runId,projectId:run.projectId,chunkId:chunk.id,text:chunk.output,label:chunk.label});
             emit({ kind: 'chunk', runId, projectId: run.projectId, chunkId: chunk.id });
             if (signal.aborted) break;
         }
@@ -140,19 +157,23 @@ export function createQueue({ repo, host, onChange } = {}) {
         return run;
     }
     const api = {
-        async plan({ projectId, title, chunkSize = 6000, overlap = 200, splitMode = 'characters', chaptersPerChunk = 1, chapterStart, chapterEnd, start = 0, end, inputText, inputName = '', sourceKind = 'novel', timeoutMs = 180000 }) {
+        async plan({ projectId, title, chunkSize = 6000, overlap = 200, splitMode = 'characters', chaptersPerChunk = 1, chapterStart, chapterEnd, start = 0, end, inputText, inputName = '', sourceKind = 'novel', timeoutMs = 180000, instructions = '', stream = true, units }) {
             if (!['novel', 'result', 'paste'].includes(sourceKind)) throw new Error('输入类型无效');
             if (!['characters', 'chapters'].includes(splitMode)) throw new Error('分块方式无效');
             if (inputText !== undefined && typeof inputText !== 'string') throw new Error('输入材料必须是文本');
             const project = await repo.getProject(projectId);
             let sourceFile = project.sourceFile;
             let sourceName = project.sourceName;
-            const source = inputText === undefined ? await repo.getSource(projectId) : inputText;
-            const ranges = splitMode === 'chapters'
+            let source = inputText === undefined && !units ? await repo.getSource(projectId) : inputText;
+            let ranges;
+            if (units) {
+                if (!Array.isArray(units) || !units.length || units.some(u => typeof u.sourceText !== 'string' || !u.sourceText.trim())) throw new Error('对象材料为空');
+                source = ''; ranges = units.map((unit, index) => { const start = source.length; source += unit.sourceText + '\n\n'; return { index, start, end: source.length - 2, label: unit.label || `对象 ${index + 1}`, instructions: unit.instructions || '', entityId: unit.entityId || null, outputName: unit.outputName || '' }; });
+            } else ranges = splitMode === 'chapters'
                 ? splitByChapters(source, { chaptersPerChunk, chapterStart, chapterEnd, start, end: end ?? source.length })
                 : splitText(source, { size: chunkSize, overlap, start, end: end ?? source.length });
             if (!ranges.length) throw new Error('所选范围没有可处理的内容');
-            if (inputText !== undefined) {
+            if (inputText !== undefined || units) {
                 const input = await repo.createSource(projectId, source, inputName);
                 sourceFile = input.sourceFile;
                 sourceName = input.sourceName;
@@ -162,6 +183,7 @@ export function createQueue({ repo, host, onChange } = {}) {
                 id: runId, projectId, title: String(title || `处理记录 ${new Date().toLocaleString('zh-CN')}`),
                 sourceFile, sourceName, sourceKind, sourceLength: source.length, rangeStart: ranges[0].start, rangeEnd: ranges.at(-1).end,
                 splitMode, chunkSize: Number(chunkSize), overlap: splitMode === 'chapters' ? 0 : Number(overlap), timeoutMs: Number(timeoutMs),
+                instructions: String(instructions), stream: Boolean(stream),
                 ...(splitMode === 'chapters' ? { chaptersPerChunk: Number(chaptersPerChunk), chapterStart: ranges[0].chapterStart, chapterEnd: ranges.at(-1).chapterEnd } : {}),
                 createdAt: timestamp(), updatedAt: timestamp(), status: 'pending',
                 chunks: ranges.map(range => ({ ...range, id: newId(), status: 'pending', attempts: 0, outputLength: 0 })),
@@ -184,7 +206,7 @@ export function createQueue({ repo, host, onChange } = {}) {
             token.controller.abort();
             await token.done;
         },
-        current: () => active ? { runId: active.runId, projectId: active.projectId } : null,
+        current: () => active ? { runId: active.runId, projectId: active.projectId, chunkId: active.chunkId, output: active.output, label: active.label } : null,
         subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
         async recover(projectId, { fullAudit = false } = {}) {
             if (active) return;

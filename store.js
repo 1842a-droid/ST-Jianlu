@@ -138,6 +138,19 @@ export function createRepository(backend) {
         return { ...data, index: meta.index };
     }
     const api = {
+        getLibrary: projectId => after(async () => {
+            await readProject(projectId);
+            const data = await readJson(`jl-library-${id(projectId)}.json`, false);
+            if (data && (!Array.isArray(data.items) || data.version !== 1)) throw new Error('人物与道具资料格式无效');
+            return data || { version: 1, items: [], format: '' };
+        }),
+        saveLibrary: (projectId, library) => serial(async () => {
+            const project = await readProject(projectId);
+            if (!Array.isArray(library?.items)) throw new Error('资料格式无效');
+            const seen = new Set(); for (const item of library.items) { id(item.id); if (seen.has(item.id) || typeof item.name !== 'string') throw new Error('资料标识无效'); seen.add(item.id); }
+            await writeJson(`jl-library-${id(projectId)}.json`, { ...library, version: 1 });
+            project.updatedAt = now(); await persistProject(project); return copy(library);
+        }),
         listProjects: () => after(async () => copy((await readIndex()).projects).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))),
         createProject: options => serial(() => createProjectInternal(options || {})),
         getProject: projectId => after(() => readProject(projectId)),
@@ -194,6 +207,7 @@ export function createRepository(backend) {
                 }
             }
             for (const file of new Set(project.sourceFiles)) await remove(file);
+            await remove(`jl-library-${id(projectId)}.json`);
             await updateIndex(project, true);
             await remove(projectFile(projectId));
         }),
@@ -299,7 +313,8 @@ export function createRepository(backend) {
                 for (const chunk of run.chunks) chunks.push(await readChunk(run.id, chunk.id, run));
                 runs.push({ run, chunks });
             }
-            return withoutSecrets({ kind: 'jianlu-project', version: 1, exportedAt: now(), project, sources, runs });
+            const library = await readJson(`jl-library-${id(projectId)}.json`, false);
+            return withoutSecrets({ kind: 'jianlu-project', version: 1, exportedAt: now(), project, sources, runs, library });
         }),
         importProject: backup => serial(async () => {
             const value = copy(backup);
@@ -323,6 +338,18 @@ export function createRepository(backend) {
                 }
             }
             const projectId = newId();
+            if (value.library) {
+                if (value.library.version !== 1 || !Array.isArray(value.library.items)) throw new Error('备份资料格式无效');
+                const seen = new Set();
+                for (const item of value.library.items) {
+                    if (!item || typeof item.name !== 'string' || !item.name.trim() || seen.has(item.id)) throw new Error('备份资料格式无效');
+                    id(item.id); seen.add(item.id);
+                }
+            }
+            const entityMap = new Map((value.library?.items || []).map(item => [item.id, newId()]));
+            if (value.library) {
+                await writeJson(`jl-library-${projectId}.json`, { ...value.library, items: value.library.items.map(item => ({ ...item, id: entityMap.get(item.id) })) });
+            }
             const sourceMap = new Map(sourceNames.map(file => [file, `jl-source-${projectId}-${newId()}.txt`]));
             const project = { id: projectId, title: original.title.trim() || '导入的小说', sourceName: String(original.sourceName || ''), sourceFile: sourceMap.get(original.sourceFile), sourceFiles: [...sourceMap.values()], length: value.sources[original.sourceFile].length, createdAt: now(), updatedAt: now(), runs: [], settings: copy(original.settings || {}) };
             for (const [oldName, newName] of sourceMap) await writeText(newName, value.sources[oldName]);
@@ -331,7 +358,7 @@ export function createRepository(backend) {
                 const runId = newId();
                 const chunks = [];
                 for (const oldChunk of [...entry.chunks].sort((a, b) => a.index - b.index)) {
-                    const chunk = withoutSecrets({ ...oldChunk, id: newId(), runId, status: oldChunk.status === 'running' ? 'paused' : oldChunk.status, updatedAt: now() });
+                    const chunk = withoutSecrets({ ...oldChunk, id: newId(), runId, entityId: entityMap.get(oldChunk.entityId) || null, status: oldChunk.status === 'running' ? 'paused' : oldChunk.status, updatedAt: now() });
                     await writeJson(chunkFile(runId, chunk.id), chunk);
                     chunks.push(chunkMeta(chunk));
                 }

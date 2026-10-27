@@ -2,6 +2,24 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHost } from '../host.js';
 
+test('streaming uses a copied native request configuration and reports incremental text',async()=>{
+    const f=fixture();let body;const progress=[];
+    f.openai.createGenerationParameters=async(settings,model,type,messages)=>{
+        assert.equal(type,'normal');assert.equal(settings.stream_openai,true);assert.equal(settings.n,1);
+        return{generate_data:{messages:messages.filter(Boolean).concat({role:'user',content:'native transformed'}),model,stream:true,tools:[{type:'function'}]}};
+    };
+    const host=createHost({getContext:()=>f.ctx,loadModule:async name=>name.includes('openai.js')?f.openai:f.script,fetch:async(url,opts)=>{
+        assert.equal(url,'/api/backends/chat-completions/generate');body=JSON.parse(opts.body);
+        return new Response('data: {"choices":[{"delta":{"content":"边生成"}}]}\n\ndata: {"choices":[{"delta":{"content":"边显示"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',{headers:{'content-type':'text/event-stream'}});
+    }});
+    const snapshot=await host.capture(f.state.input,{instructions:'只为 a 生成角色卡'});
+    assert.equal(snapshot.messages.at(-1).content,'只为 a 生成角色卡');
+    const result=await host.generate(snapshot,{onProgress:x=>progress.push(x)});
+    assert.equal(body.type,'quiet');assert.equal(body.tools,undefined);assert.equal(result.text,'边生成边显示');assert.deepEqual(progress,['边生成','边生成边显示']);assert.equal(f.ctx.chatCompletionSettings.stream_openai,undefined);
+    assert.equal(snapshot.requestMessages.at(-1).content,'native transformed');
+    assert.equal(snapshot.requestStage,'settings-ready');
+});
+
 function emitter() {
     const listeners = new Map();
     return {

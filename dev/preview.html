@@ -18,6 +18,8 @@ import { createRepository } from '../store.js';
 import { createQueue } from '../queue.js';
 import { createController } from '../app.js';
 import { createUI } from '../ui.js';
+import { readCompletion } from '../stream.js';
+import { normalizeEntity } from '../library.js';
 const data = new Map();
 const repo = createRepository({read: async name => data.get(name) ?? null,write: async (name,text) => data.set(name,text),remove: async name => data.delete(name)});
 let currentModel='模型甲';
@@ -25,18 +27,24 @@ const host = {
   info: () => ({available:true,supported:true,presetName:'我的预设',model:currentModel,api:'openai',source:'custom'}),
   models: async()=>({current:currentModel,source:'custom',models:[{id:'模型甲',label:'模型甲'},{id:'模型乙',label:'模型乙'}]}),
   setModel:async id=>{currentModel=id;return host.info();},
-  capture: async input => ({messages:[{role:'user',content:input}],profile:{presetName:'我的预设',model:'当前连接'}}),
-  generate: async () => {throw new Error('界面检查不调用模型');},
+  capture: async (input,options) => ({messages:[{role:'user',content:input}],instructions:options?.instructions,profile:{presetName:'我的预设',model:'当前连接'}}),
+  generate: async (snapshot,{onProgress,signal}) => {
+    const text='这是界面检查中的模拟流式输出。\n\n主名称：a\n类型：人物\n依据：只从当前提供的小说材料中整理信息。\n\n检索词可以有多个，关联道具与族群保持独立归属。\n'.repeat(2);
+    const stream=new ReadableStream({start(controller){(async()=>{for(let i=0;i<text.length;i+=4){if(signal.aborted)throw new DOMException('已暂停','AbortError');controller.enqueue(new TextEncoder().encode('data: '+JSON.stringify({choices:[{delta:{content:text.slice(i,i+4)}}]})+'\n\n'));await new Promise(r=>setTimeout(r,120));}controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'));controller.close();})().catch(error=>controller.error(error));}});
+    return readCompletion(new Response(stream,{headers:{'content-type':'text/event-stream'}}),{onProgress,signal});
+  },
   notify: message => console.info(message),subscribe: () => () => {},
   openPreset: () => {}, openApi: () => {}, openWorldInfo: () => {},
 };
 const queue = createQueue({repo,host});
 let app;
 const ui=createUI({onAction:(type,payload)=>app.handle(type,payload)});
-app=createController({repo,host,queue,ui,context:()=>({extensionSettings:{jianlu:{theme:'light',fontSize:13}}})});
+const tavern={targets:async()=>({characters:[{id:'demo.png',name:'示例角色卡'}],worldbooks:['示例世界书']}),writeCharacter:async()=>({name:'示例角色卡'}),writeWorldbook:async()=>({name:'示例世界书'})};
+app=createController({repo,host,queue,ui,tavern,context:()=>({extensionSettings:{jianlu:{theme:'light',fontSize:13}}})});
 await app.init();
 const source=Array.from({length:40},(_,i)=>`第${i+1}章${['雾中的信','钟楼','长街','海风'][i%4]}\n\n清晨，码头收到一封没有署名的信。沈青把信放进外套口袋，沿着旧石阶走向钟楼。\n\n${'海风吹过廊桥，路灯次第熄灭。\n'.repeat(12)}\n`).join('');
 const project=await repo.createProject({title:'雾港来信',sourceName:'雾港来信.txt',sourceText:source});
+await repo.saveLibrary(project.id,{version:1,format:'名称:\n  类型:\n  身份:\n  经历:\n  依据:',items:[normalizeEntity({name:'沈青',outputName:'青',content:'沈青收到一封没有署名的信。'}),normalizeEntity({name:'信',type:'prop',content:'码头收到的信，没有署名。'})]});
 const run=await queue.plan({projectId:project.id,title:'第一轮处理',splitMode:'chapters',chaptersPerChunk:1});
 for(const [i,status] of ['done','done','failed','partial'].entries()){
  const chunk=await repo.getChunk(run.id,run.chunks[i].id);

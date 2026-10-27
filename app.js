@@ -1,4 +1,6 @@
-import { copyText } from './ui.js';
+import { copyText, THEMES } from './ui.js';
+import { createLibraryUI } from './library-ui.js';
+import { createTavern } from './tavern.js';
 
 const defaultSettings = { theme: 'host', fontSize: 13 };
 
@@ -54,7 +56,7 @@ async function pickFile(accept = '.txt,.md,.text') {
     });
 }
 
-export function createController({ repo, host, queue, ui, context = () => globalThis.SillyTavern?.getContext?.() }) {
+export function createController({ repo, host, queue, ui, context = () => globalThis.SillyTavern?.getContext?.(), tavern = createTavern({getContext:context}) }) {
     const state = {
         projects: [], project: null, runs: [], run: null, hostInfo: {}, active: null,
         busy: false, filter: 'all', selectedIds: [], page: 0, pageSize: 30,
@@ -77,6 +79,8 @@ export function createController({ repo, host, queue, ui, context = () => global
         state.notice = message; notify(message, 'error'); draw();
     };
     const toast = message => { state.notice = ''; notify(message, 'success'); };
+    const library = createLibraryUI({repo,host,queue,ui,tavern,getProject:()=>state.project,getRun:()=>state.run,notify,
+        onRun:run=>{state.run=run;state.selectedIds=[];state.page=0;refresh().catch(report);toast('任务已生成，可从任务操作执行');},onUpdate:()=>scheduleRefresh()});
     const persistSettings = () => {
         const ctx = context();
         if (ctx?.extensionSettings) {
@@ -100,6 +104,11 @@ export function createController({ repo, host, queue, ui, context = () => global
         Object.assign(state, { projects, project, runs, run });
         const available = new Set((run?.chunks || []).map(chunk => chunk.id));
         state.selectedIds = state.selectedIds.filter(id => available.has(id));
+        const detail=drawer;
+        if(detail&&run&&detail.runId===run.id&&available.has(detail.chunkId)){
+            const chunk=await repo.getChunk(run.id,detail.chunkId);
+            if(drawer===detail)detail.update?.({chunk});
+        }
         draw();
     }
 
@@ -115,12 +124,12 @@ export function createController({ repo, host, queue, ui, context = () => global
     async function init() {
         const config = context()?.extensionSettings?.jianlu || {};
         state.settings = {
-            theme: ['host', 'light', 'dark'].includes(config.theme) ? config.theme : 'host',
+            theme: THEMES.some(([id])=>id===config.theme) ? config.theme : 'host',
             fontSize: Math.min(16, Math.max(12, Number(config.fontSize) || 13)),
         };
         ui.mount();
         await refresh(); await refreshHost();
-        disposers.push(queue.subscribe(scheduleRefresh));
+        disposers.push(queue.subscribe(event=>{if(event?.kind==='stream'){ui.updateStream?.(event);return;}scheduleRefresh();}));
         if (host.subscribe) disposers.push(host.subscribe(() => refreshHost().catch(report)));
     }
 
@@ -232,6 +241,7 @@ export function createController({ repo, host, queue, ui, context = () => global
         const end = field(body, '结束位置', el('input', { type: 'number', min: 1, value: project.length }));
         const size = field(body, '每块字数', el('input', { type: 'number', min: 100, step: 100, value: 6000 }));
         const overlap = field(body, '重叠字数', el('input', { type: 'number', min: 0, step: 50, value: 200 }));
+        const instructions = field(body, '本次要求（可留空，使用酒馆预设）', el('textarea', { rows: 4, spellcheck: false }));
         const chaptersPerChunk = field(body, '每块章数', el('input', { type: 'number', min: 1, step: 1, value: 1 }));
         const chapterStart = field(body, '起始章节序号', el('input', { type: 'number', min: 1, step: 1, value: 1 }));
         const chapterEnd = field(body, '结束章节序号', el('input', { type: 'number', min: 1, step: 1, placeholder: '至末章' }));
@@ -248,7 +258,7 @@ export function createController({ repo, host, queue, ui, context = () => global
         for (;;) {
             const choice = await ui.dialog({ title: '新建任务', body, buttons: [{ label: '取消', value: 'cancel' }, { label: '生成任务计划', value: 'plan', primary: true }] });
             if (choice !== 'plan') return;
-            const options = { projectId: project.id, title: title.value.trim() || '新任务', chunkSize: Number(size.value), overlap: Number(overlap.value), sourceKind: sourceType.value, splitMode: splitMode.value };
+            const options = { projectId: project.id, title: title.value.trim() || '新任务', chunkSize: Number(size.value), overlap: Number(overlap.value), sourceKind: sourceType.value, splitMode: splitMode.value, instructions:instructions.value };
             if (splitMode.value === 'chapters') {
                 options.chaptersPerChunk = Number(chaptersPerChunk.value);
                 options.chapterStart = Number(chapterStart.value);
@@ -275,9 +285,11 @@ export function createController({ repo, host, queue, ui, context = () => global
         const chunk = await repo.getChunk(run.id, id);
         const full = await readRunSource(run);
         const sourceText = full.slice(chunk.start, chunk.end);
+        const live = queue.current();
+        if(live?.runId===run.id&&live.chunkId===chunk.id) chunk.output=live.output||chunk.attemptOutput||chunk.output;
         if (!chunk.snapshot) {
             try {
-                chunk.snapshot = { ...await host.capture(sourceText, { projectTitle: state.project?.title, blockIndex: chunk.index, blockTotal: run.chunks.length, blockLabel: chunk.label, rangeStart: chunk.start, rangeEnd: chunk.end }), previewOnly: true };
+                chunk.snapshot = { ...await host.capture(sourceText, { projectTitle: state.project?.title, blockIndex: chunk.index, blockTotal: run.chunks.length, blockLabel: chunk.label, rangeStart: chunk.start, rangeEnd: chunk.end,instructions:[run.instructions,chunk.instructions].filter(Boolean).join('\n\n') }), previewOnly: true };
             } catch (error) { chunk.previewError = error.message; }
         }
         drawer?.close?.(); drawer = ui.showChunk({ chunk, sourceText });
@@ -330,7 +342,9 @@ export function createController({ repo, host, queue, ui, context = () => global
                 currentText = value.text; text.value = currentText.slice(0, 200000); text.readOnly = currentText.length > 200000;
             }).catch(report);
         });
-        const choice = await ui.dialog({ title: '合并结果', body, buttons: [{ label: '关闭', value: 'cancel' }, { label: '复制', value: 'copy' }, { label: '导出', value: 'export', primary: true }] });
+        const choice = await ui.dialog({ title: '合并结果', body, layout:'wide',buttons: [{ label: '关闭', value: 'cancel' }, { label: '复制', value: 'copy' },{label:'保存到资料',value:'library'},{label:'写入酒馆',value:'publish'}, { label: '导出', value: 'export', primary: true }] });
+        if(choice==='library')return library.saveOutput({text:currentText,name:run.title});
+        if(choice==='publish')return library.publish({text:currentText,name:run.title});
         if (choice === 'copy') { await copyText(currentText); toast('已复制'); }
         if (choice === 'export') {
             if (format.value === 'json') {
@@ -401,7 +415,7 @@ export function createController({ repo, host, queue, ui, context = () => global
                 .finally(() => { api.disabled = Boolean(queue.current()); });
         });
         connection.append(api); body.append(connection);
-        const theme = field(body, '主题', select([['host', '跟随酒馆'], ['light', '纸白'], ['dark', '墨色']], state.settings.theme));
+        const theme = field(body, '主题', select(THEMES, state.settings.theme));
         const font = field(body, '字号', select([12, 13, 14, 15, 16].map(value => [String(value), `${value}px`]), String(state.settings.fontSize)));
         const saveAppearance = () => {
             state.settings = { theme: theme.value, fontSize: Number(font.value) };
@@ -475,7 +489,7 @@ export function createController({ repo, host, queue, ui, context = () => global
 
     async function handle(type, data = {}) {
         if (destroyed) return;
-        const exclusive = new Set(['newProject', 'importBackup', 'openProject', 'source', 'renameProject', 'deleteProject', 'exportBackup', 'newRun', 'selectRun', 'openChunk', 'saveChunk', 'mergeExport', 'settings', 'apiSettings', 'taskActions', 'deleteChunks']);
+        const exclusive = new Set(['newProject', 'importBackup', 'openProject', 'source', 'renameProject', 'deleteProject', 'exportBackup', 'newRun', 'selectRun', 'openChunk', 'saveChunk', 'mergeExport', 'settings', 'apiSettings', 'taskActions', 'deleteChunks','library','saveToLibrary','publishOutput']);
         const lock = exclusive.has(type);
         if (lock && state.busy) return;
         if (lock) { state.busy = true; draw(); }
@@ -486,6 +500,12 @@ export function createController({ repo, host, queue, ui, context = () => global
             if (type === 'apiSettings') return await apiSettings();
             if (type === 'taskActions') return await taskActions();
             if (type === 'deleteChunks') return await deleteChunks(data.ids);
+            if (type === 'library') return await library.open();
+            if (type === 'saveToLibrary'||type==='publishOutput') {
+                const chunk=await repo.getChunk(state.run.id,data.id);
+                const value={text:data.output??chunk.output,name:chunk.outputName||chunk.label,entityId:chunk.entityId};
+                return type==='saveToLibrary'?await library.saveOutput(value):await library.publish(value);
+            }
             if (type === 'openProject') return await openProject(data.id);
             if (type === 'backProjects') { drawer?.close?.(); state.project = null; state.run = null; sourceCache = null; state.selectedIds = []; return await refresh(); }
             if (type === 'source') return await source();
