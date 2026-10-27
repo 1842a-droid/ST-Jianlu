@@ -44,6 +44,11 @@ test('检索上下文和上限截取不切断 emoji 字符',()=>{
     const result=collectContext(source,['甲'],{radius:1,maxChars:0});assert.equal(result.text.split('\n').at(-1),'😀甲😀');assert.equal(result.text.isWellFormed(),true);
     for(let limit=20;limit<30;limit++)assert.equal(collectContext(source,['甲'],{radius:20,maxChars:limit}).text.isWellFormed(),true);
 });
+test('多块扫描结果可直接导入，保留字符串内括号，拒绝不完整 JSON',()=>{
+    const records=parseEntities('```json\n[{"name":"甲","notes":"字符串里的 ] [ 与 \\\"引号\\\""}]\n```\n\n```json\n{"items":[{"name":"信","type":"prop"}]}\n```');
+    assert.deepEqual(records.map(x=>x.name),['甲','信']);assert.equal(records[1].type,'prop');
+    assert.throws(()=>parseEntities('["甲"]\n["乙"'),/完整 JSON/);
+});
 test('项目资料单独保存，备份保留内容并重映射资料与生成任务归属',async()=>{
     const {repo}=memory();const p=await repo.createProject({title:'一',sourceText:'主角原文'});const other=await repo.createProject({title:'二',sourceText:'其他原文'});const e=normalizeEntity({name:'abc',outputName:'a',content:'档案'});await repo.saveLibrary(p.id,{version:1,items:[e],format:'名称: 内容'});assert.equal((await repo.getLibrary(other.id)).items.length,0);
     const q=createQueue({repo,host:{capture:async(input,o)=>({messages:[{role:'user',content:input}],instructions:o.instructions}),generate:async()=>({text:'输出'})}});const run=await q.plan({projectId:p.id,units:[{label:'a',sourceText:'检索材料',instructions:entityInstructions(e),entityId:e.id,outputName:'a'}],sourceKind:'paste'});await q.run(run.id);assert.equal(await repo.getSource(p.id),'主角原文');const c=await repo.getChunk(run.id,run.chunks[0].id);assert.match(c.snapshot.instructions,/输出主名称/);

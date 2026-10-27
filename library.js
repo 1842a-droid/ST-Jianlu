@@ -40,9 +40,29 @@ export function collectContext(text, values, { radius = 700, maxChars = 60000 } 
     return { text: out, matches, truncated };
 }
 export function parseEntities(text) {
-    const clean = String(text).trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
-    let data; try { data = JSON.parse(clean); } catch { throw new Error('请提供 JSON 名称数组或含 name / 名称 的对象数组'); }
-    if (!Array.isArray(data)) data = data.characters || data.entities || data.items || data.人物 || data.道具;
-    if (!Array.isArray(data)) throw new Error('未找到资料数组');
-    return data.map(value => normalizeEntity(typeof value === 'string' ? {name:value} : { ...value, name:value.name || value.名称, outputName:value.outputName || value.主名称, type:value.type === '道具' ? 'prop' : value.type === '设定' ? 'setting' : value.type }));
+    const clean = String(text).trim().replace(/^\s*```(?:json)?[ \t]*\r?$/gmi,'').trim();
+    let documents;
+    try { documents = [JSON.parse(clean)]; } catch {
+        // Consecutive chunks each produce a valid document; importing all of them
+        // must not require merging independent arrays into one valid JSON first.
+        documents=[];let depth=0,start=-1,quoted=false,escaped=false;
+        try {
+            for(let i=0;i<clean.length;i++){
+                const ch=clean[i];
+                if(start<0){if(/\s/.test(ch))continue;if(ch!=='['&&ch!=='{')throw new Error();start=i;}
+                if(quoted){if(escaped)escaped=false;else if(ch==='\\')escaped=true;else if(ch==='"')quoted=false;continue;}
+                if(ch==='"')quoted=true;
+                else if(ch==='['||ch==='{')depth++;
+                else if(ch===']'||ch==='}'){
+                    if(--depth===0){documents.push(JSON.parse(clean.slice(start,i+1)));start=-1;}
+                }
+            }
+            if(start>=0||!documents.length)throw new Error();
+        }catch{throw new Error('请提供完整 JSON 名称数组或含 name / 名称 的对象数组');}
+    }
+    return documents.flatMap(value=>{
+        const data=Array.isArray(value)?value:value?.characters||value?.entities||value?.items||value?.人物||value?.道具;
+        if (!Array.isArray(data)) throw new Error('未找到资料数组');
+        return data.map(value => normalizeEntity(typeof value === 'string' ? {name:value} : { ...value, name:value?.name || value?.名称, outputName:value?.outputName || value?.主名称, type:value?.type === '道具' ? 'prop' : value?.type === '设定' ? 'setting' : value?.type }));
+    });
 }
