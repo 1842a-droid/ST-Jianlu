@@ -152,6 +152,17 @@ export function createUI({ onAction = () => {} } = {}) {
         root?.style.setProperty('--jl-viewport-height', `${height}px`);
     }
 
+    function syncControlScheme() {
+        if (!root) return;
+        const theme=root.dataset.theme;
+        let dark=['dark','plum'].includes(theme);
+        if(theme==='host'){
+            const rgb=getComputedStyle(root).color.match(/^rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)/i);
+            if(rgb)dark=Number(rgb[1])*.2126+Number(rgb[2])*.7152+Number(rgb[3])*.0722>140;
+        }
+        root.style.colorScheme=dark?'dark':'light';
+    }
+
     function setVisible(value) {
         host.hidden = !value;
         host.style.setProperty('display', value ? 'block' : 'none', 'important');
@@ -192,8 +203,9 @@ export function createUI({ onAction = () => {} } = {}) {
         const stylesheet = node('link');
         stylesheet.rel = 'stylesheet';
         const stylesheetUrl = new URL('./style.css', import.meta.url);
-        stylesheetUrl.search = new URL(import.meta.url).search;
+        stylesheetUrl.search = new URL(import.meta.url).search || '?v=0.4.1';
         stylesheet.href = stylesheetUrl.href;
+        stylesheet.addEventListener('load',syncControlScheme);
         shadow.append(criticalStyle, stylesheet);
         root = node('div');
         root.id = 'jianlu-root';
@@ -347,6 +359,7 @@ export function createUI({ onAction = () => {} } = {}) {
         const focusKey = content.contains(focused) ? focused.dataset.focusKey : null;
         const inlineView=chunkView?.inline&&chunkView.runId===state.run?.id?chunkView:null;
         root.dataset.theme = THEMES.some(([id])=>id===state.settings?.theme) ? state.settings.theme : 'host';
+        syncControlScheme();
         root.style.setProperty('--jl-font-size', `${Math.max(12, Math.min(16, Number(state.settings?.fontSize) || 13))}px`);
         content.replaceChildren();
         content.dataset.project = state.project?.id || '';

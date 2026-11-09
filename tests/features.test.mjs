@@ -69,6 +69,7 @@ function tavernFixture(){
     const fetch=async(url,opts)=>{calls.push({url,opts});
         if(url==='/api/characters/import'){const card=JSON.parse(await opts.body.get('avatar').text());assert.equal(opts.headers['Content-Type'],undefined);cards.set('new.png',card);return Response.json({file_name:'new.png'});}
         const b=JSON.parse(opts.body);
+        if(url==='/api/settings/get')return Response.json({world_names:[...worlds.keys()]});
         if(url==='/api/characters/get')return Response.json(cards.get(b.avatar_url));
         if(url==='/api/characters/edit-attribute'){const c=cards.get(b.avatar_url);assert.equal(b.ch_name,c.name);c[b.field]=b.value;c.data[b.field]=b.value;return new Response('OK');}
         if(url==='/api/worldinfo/list')return Response.json([...worlds.keys()].map(name=>({file_id:name})));

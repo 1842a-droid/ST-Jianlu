@@ -69,8 +69,8 @@
 #jianlu-root .jl-word-count {white-space:nowrap;font-size:11px}
 #jianlu-root .jl-run-toolbar {display:flex;gap:12px;margin-bottom:16px}
 #jianlu-root .jl-run-picker {display:block;flex:1;min-width:0;max-width:520px}
-#jianlu-root select {display:block;appearance:auto;-webkit-appearance:menulist;min-height:38px;width:100%;padding:8px 10px;margin:0;border:1px solid var(--jl-line);border-radius:9px;color:var(--jl-text);background:linear-gradient(var(--jl-surface),var(--jl-surface)),var(--jl-underlay);font-size:12px;touch-action:manipulation}
-#jianlu-root option {background:var(--jl-underlay);color:var(--jl-text)}
+#jianlu-root select {display:block;appearance:none;-webkit-appearance:none;min-height:38px;width:100%;padding:8px 30px 8px 10px;margin:0;border:1px solid var(--jl-line);border-radius:9px;color:var(--jl-text);-webkit-text-fill-color:var(--jl-text);background-color:var(--jl-surface);background-image:linear-gradient(45deg,transparent 50%,var(--jl-muted) 50%),linear-gradient(135deg,var(--jl-muted) 50%,transparent 50%);background-position:calc(100% - 15px) 50%,calc(100% - 10px) 50%;background-size:5px 5px;background-repeat:no-repeat;font-size:12px;touch-action:manipulation}
+#jianlu-root option {background-color:var(--jl-surface);color:var(--jl-text);-webkit-text-fill-color:var(--jl-text)}
 #jianlu-root .jl-run-actions {display:flex;align-items:center;gap:10px;flex:1;justify-content:flex-end}
 #jianlu-root .jl-add-button {width:36px;min-width:36px;padding:4px;border:0;background:var(--jl-soft);font-size:22px}
 #jianlu-root .jl-count {font-size:12px;white-space:nowrap;color:var(--jl-muted);font-variant-numeric:tabular-nums}

@@ -31,9 +31,19 @@ export function createTavern({ getContext = () => globalThis.SillyTavern?.getCon
         const text = await response.text();
         if (!response.ok) {
             const error = new Error(`${response.status === 401 || response.status === 403 ? '酒馆登录或权限已失效，请重新登录后重试' : '酒馆接口请求失败'} (${response.status})：${text.replace(/<[^>]*>/g, '').slice(0, 150)}`);
+            error.status = response.status; error.endpoint = url;
+            if ([401,403].includes(response.status)) error.code = 'AUTH_REQUIRED';
+            throw error;
+        }
+        if (/^\s*(?:<!doctype|<html)/i.test(text)) {
+            // Tauri's asset server returns the app shell for unknown API routes.
+            // HTML alone is not evidence that the user has been logged out.
+            const login = (response.redirected && /\/(?:login|signin)(?:[/?#]|$)/i.test(response.url || ''))
+                || /<form\b[^>]*\baction\s*=\s*["'][^"']*\/(?:login|signin)(?:[/?#"'])/i.test(text);
+            const error = new Error(login ? '酒馆要求重新登录，请登录后重试' : '当前酒馆接口返回了网页内容，未读取到数据');
+            error.code = login ? 'AUTH_REQUIRED' : 'UNEXPECTED_HTML';
             error.status = response.status; error.endpoint = url; throw error;
         }
-        if (/^\s*(?:<!doctype|<html)/i.test(text)) throw new Error('酒馆返回了登录页面，请重新登录后重试');
         let value;
         try { value = JSON.parse(text); if (typeof value === 'string' && /^[\[{]/.test(value.trim())) value = JSON.parse(value); }
         catch { if (textOK && (!text.trim() || /^OK$/i.test(text.trim()))) return {}; throw new Error('酒馆返回的数据格式不正确，请检查酒馆版本'); }
@@ -58,19 +68,23 @@ export function createTavern({ getContext = () => globalThis.SillyTavern?.getCon
     }
     async function listWorldbooks() {
         const c = ctx();
-        try { return namesOf(await post('/api/worldinfo/list', {})); }
-        catch (error) {
-            if (![404,405].includes(error.status)) throw error;
-            // Older ST versions do not have /worldinfo/list. Both native sources
-            // below and the helper API used by the supplied tool card predate it.
-            if (typeof c.getWorldInfoNames === 'function') return namesOf(await c.getWorldInfoNames());
-            const helper = getHelper();
-            if (typeof helper?.getWorldbookNames === 'function') return namesOf(await helper.getWorldbookNames());
-            const native = await module('/scripts/world-info.js');
-            if (Array.isArray(native?.world_names)) return namesOf(native.world_names);
+        const unavailable = error => [404,405].includes(error.status) || error.code === 'UNEXPECTED_HTML';
+        // This is the same metadata route used by native updateWorldInfoList.
+        // It exists in both SillyTavern and TauriTavern 2.3, whose /worldinfo/list
+        // route is absent and falls through to an HTTP 200 HTML app shell.
+        try {
             const settings = await post('/api/settings/get', {});
             if (Array.isArray(settings?.world_names)) return namesOf(settings.world_names);
-            throw new Error('无法读取世界书列表，请更新酒馆或重新登录');
+        } catch (error) { if (!unavailable(error)) throw error; }
+        if (typeof c.getWorldInfoNames === 'function') return namesOf(await c.getWorldInfoNames());
+        const helper = getHelper();
+        if (typeof helper?.getWorldbookNames === 'function') return namesOf(await helper.getWorldbookNames());
+        const native = await module('/scripts/world-info.js');
+        if (Array.isArray(native?.world_names)) return namesOf(native.world_names);
+        try { return namesOf(await post('/api/worldinfo/list', {})); }
+        catch (error) {
+            if (!unavailable(error)) throw error;
+            throw new Error('当前酒馆未提供可用的世界书列表接口，请刷新后重试');
         }
     }
     async function targets() {
